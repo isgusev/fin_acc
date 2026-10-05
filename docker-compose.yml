@@ -1,0 +1,34 @@
+# Локальная разработка: PostgreSQL (+ приложение по профилю "app").
+#   docker compose up -d db          — только база (для запуска из PyCharm)
+#   docker compose --profile app up  — база + приложение в контейнере
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: fin_acc
+      POSTGRES_PASSWORD: fin_acc
+      POSTGRES_DB: fin_acc
+    ports:
+      - "5434:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fin_acc"]
+      interval: 3s
+      retries: 20
+
+  app:
+    profiles: ["app"]
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://fin_acc:fin_acc@db:5432/fin_acc
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
