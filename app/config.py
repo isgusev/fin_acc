@@ -11,7 +11,6 @@ class Settings(BaseSettings):
 
     app_env: str = Field(default="development", description="development | production | test")
     database_url: str = "postgresql+psycopg://fin_acc:fin_acc@localhost:5434/fin_acc"
-    secret_key: SecretStr = SecretStr("")
 
     # Cookie сессии. В production должны быть secure=True (HTTPS).
     session_cookie_name: str = "fa_session"
@@ -41,12 +40,8 @@ class Settings(BaseSettings):
         return self.app_env == "production"
 
     def validate_for_runtime(self) -> None:
-        key = self.secret_key.get_secret_value()
-        if self.is_production:
-            if len(key) < 32:
-                raise RuntimeError("SECRET_KEY должен быть задан (не короче 32 символов)")
-            if not self.cookie_secure:
-                raise RuntimeError("В production COOKIE_SECURE должен быть true")
+        if self.is_production and not self.cookie_secure:
+            raise RuntimeError("В production COOKIE_SECURE должен быть true")
 
 
 @lru_cache

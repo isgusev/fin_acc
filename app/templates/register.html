@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Регистрация{% endblock %}
+{% block content %}
+<section class="card auth-card">
+  <h1>Регистрация</h1>
+  {% if not registration_open %}
+    <div class="alert alert-info">Регистрация новых пользователей закрыта администратором.</div>
+    <p class="center"><a href="/login">Войти</a></p>
+  {% else %}
+  {{ m.form_error(f) }}
+  <form method="post" action="/register" novalidate>
+    {{ m.csrf() }}
+    {{ m.input(f, "display_name", "Имя / псевдоним", required=True, extra='autocomplete="nickname" maxlength="100"') }}
+    {{ m.input(f, "email", "Email", type="email", required=True, extra='autocomplete="email"') }}
+    {{ m.input(f, "password", "Пароль", type="password", required=True, hint="Не короче 8 символов, буквы и цифры", extra='autocomplete="new-password"') }}
+    {{ m.input(f, "password2", "Повторите пароль", type="password", required=True, extra='autocomplete="new-password"') }}
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary btn-block">Зарегистрироваться</button>
+    </div>
+  </form>
+  <p class="muted center">Уже есть учётная запись? <a href="/login">Войти</a></p>
+  {% endif %}
+</section>
+{% endblock %}

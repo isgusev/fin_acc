@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Вход{% endblock %}
+{% block content %}
+<section class="card auth-card">
+  <h1>Вход</h1>
+  {{ m.form_error(f) }}
+  <form method="post" action="/login" novalidate>
+    {{ m.csrf() }}
+    <input type="hidden" name="next" value="{{ f.v('next') or '/' }}">
+    {{ m.input(f, "email", "Email", type="email", required=True, extra='autocomplete="username" autofocus') }}
+    {{ m.input(f, "password", "Пароль", type="password", required=True, extra='autocomplete="current-password"') }}
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary btn-block">Войти</button>
+    </div>
+  </form>
+  {% if registration_open %}
+  <p class="muted center">Нет учётной записи? <a href="/register">Зарегистрироваться</a></p>
+  {% endif %}
+</section>
+{% endblock %}

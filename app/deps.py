@@ -21,8 +21,9 @@ PASSWORD_CHANGE_ALLOWED = {
     "/logout",
     "/api/v1/auth/password",
     "/api/v1/auth/logout",
-    "/api/v1/auth/me",
 }
+# ...и только на чтение
+PASSWORD_CHANGE_READ_ONLY = {"/api/v1/auth/me"}
 
 
 class PasswordChangeRequired(ForbiddenError):
@@ -71,7 +72,11 @@ def current_user(request: Request, sess: UserSession | None = Depends(get_sessio
     if sess is None:
         raise UnauthorizedError("Требуется вход в систему")
     user = sess.user
-    if user.must_change_password and request.url.path not in PASSWORD_CHANGE_ALLOWED:
+    path = request.url.path
+    allowed = path in PASSWORD_CHANGE_ALLOWED or (
+        path in PASSWORD_CHANGE_READ_ONLY and request.method in SAFE_METHODS
+    )
+    if user.must_change_password and not allowed:
         raise PasswordChangeRequired("Необходимо сменить временный пароль")
     return user
 

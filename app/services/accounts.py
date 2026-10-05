@@ -188,7 +188,8 @@ def close_account(db: Session, user: User, account_id: uuid.UUID) -> Account:
         raise ConflictError("Счёт уже закрыт")
     balance = account_balance(db, user.id, acc.id)
     if balance != ZERO:
-        raise ConflictError(f"Закрыть можно только счёт с нулевым остатком (сейчас {balance} ₽)")
+        shown = f"{balance:,.2f}".replace(",", " ").replace(".", ",")
+        raise ConflictError(f"Закрыть можно только счёт с нулевым остатком (сейчас {shown} ₽)")
     acc.is_closed = True
     acc.closed_at = datetime.now(UTC)
     db.commit()

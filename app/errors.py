@@ -93,6 +93,8 @@ def humanize_pydantic_error(err: dict[str, Any]) -> tuple[str, str | None]:
     ctx = dict(err.get("ctx") or {})
     if template is None:
         return err.get("msg", "Некорректное значение"), field
+    if err.get("type") == "value_error" and loc and loc[-1] == "email":
+        return "Некорректный адрес email", field
     if err.get("type") == "value_error":
         msg = str(ctx.get("error", err.get("msg", "")))
         return msg.removeprefix("Value error, "), field

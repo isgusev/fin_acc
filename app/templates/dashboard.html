@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Главная{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Главная</h1>
+  <div class="actions">
+    <a class="btn btn-primary" href="/operations/new?next={{ current_url|urlencode }}">Добавить операцию</a>
+    <a class="btn" href="/accounts/new">Создать счёт</a>
+    {% if user.is_admin %}
+      <a class="btn btn-ghost" href="/admin/holidays">Праздничные даты</a>
+      <a class="btn btn-ghost" href="/admin/tax">Расчёт налогов</a>
+    {% endif %}
+  </div>
+</div>
+
+<section class="card">
+  <h2>Сводный баланс по типам счетов</h2>
+  <div class="table-wrap">
+    <table class="table table-compact">
+      <thead><tr><th>Тип счёта</th><th class="r">Баланс, ₽</th></tr></thead>
+      <tbody>
+      {% for t, bal in type_balances %}
+        <tr><td>{{ t.name }}</td><td class="r">{{ m.amount(bal) }}</td></tr>
+      {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr><th>Итого</th><th class="r">{{ m.amount(type_balances|sum(attribute=1)) }}</th></tr>
+      </tfoot>
+    </table>
+  </div>
+</section>
+
+<section class="card" id="operations">
+  <div class="card-head">
+    <h2>Операции</h2>
+    <span class="muted">Найдено: {{ total }}</span>
+  </div>
+  <form method="get" action="/" class="filters">
+    <div class="field"><label for="q-date_from">Дата с</label><input id="q-date_from" type="date" name="date_from" value="{{ q.date_from }}"></div>
+    <div class="field"><label for="q-date_to">Дата по</label><input id="q-date_to" type="date" name="date_to" value="{{ q.date_to }}"></div>
+    <div class="field"><label for="q-account_type_id">Тип счёта</label>
+      <select id="q-account_type_id" name="account_type_id">
+        <option value="">Все</option>
+        {% for t in account_types %}<option value="{{ t.id }}" {% if q.account_type_id == t.id|string %}selected{% endif %}>{{ t.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field"><label for="q-account_id">Счёт</label>
+      <select id="q-account_id" name="account_id">
+        <option value="">Все</option>
+        {% for a in accounts %}<option value="{{ a.id }}" {% if q.account_id == a.id|string %}selected{% endif %}>{{ a.name }}{% if a.is_closed %} (закрыт){% endif %}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field"><label for="q-operation_type">Тип операции</label>
+      <select id="q-operation_type" name="operation_type">
+        <option value="">Все</option>
+        {% for t in operation_types %}<option value="{{ t.code }}" {% if q.operation_type == t.code %}selected{% endif %}>{{ t.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="filters-actions">
+      <button type="submit" class="btn btn-primary">Показать</button>
+      {% if filtered %}<a class="btn btn-ghost" href="/">Сбросить</a>{% endif %}
+    </div>
+  </form>
+  {% if filter_error %}<div class="alert alert-warning">{{ filter_error }}</div>{% endif %}
+
+  {% if ops %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Дата</th><th>Тип</th><th>Счёт</th><th>Наименование</th><th>Категория</th>
+          <th class="r">Сумма, ₽</th><th>Комментарий</th><th>План</th><th class="actions-col"></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for op in ops %}
+        {% set code = op.operation_type.code %}
+        {% set locked = op.account.is_closed or (op.target_account and op.target_account.is_closed) %}
+        <tr>
+          <td class="nowrap">{{ op.op_date|ru_date }}</td>
+          <td><span class="badge badge-{{ code }}">{{ op.operation_type.name }}</span></td>
+          <td>{% if code == "transfer" %}{{ op.account.name }} <span class="arrow">→</span> {{ op.target_account.name if op.target_account else "" }}{% else %}{{ op.account.name }}{% endif %}</td>
+          <td>{{ op.name or "" }}</td>
+          <td>{{ op.category or "" }}</td>
+          <td class="r nowrap"><span class="num amt-{{ code }}">{% if code == "expense" %}−{% elif code == "income" %}+{% endif %}{{ op.amount|money }}</span></td>
+          <td class="comment">{{ op.comment or "" }}</td>
+          <td class="small">{% if op.plan %}<a href="/planning?year={{ op.plan.planned_date.year }}">{{ op.plan|plan_label }}</a>{% endif %}</td>
+          <td class="actions-col">
+            {% if locked %}
+              <span class="muted small" title="Операция по закрытому счёту">закрыт</span>
+            {% else %}
+              <a class="btn btn-sm btn-ghost" href="/operations/{{ op.id }}/edit?next={{ current_url|urlencode }}">Изменить</a>
+              {{ m.post_button("/operations/" ~ op.id ~ "/delete", "Удалить", confirm="Удалить операцию от " ~ (op.op_date|ru_date) ~ " на " ~ (op.amount|money) ~ " ₽?", cls="btn-ghost btn-danger", next=current_url) }}
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="pager">
+    <span class="muted">Показаны {{ offset + 1 }}–{{ offset + ops|length }} из {{ total }}</span>
+    <span>
+      {% if prev_url %}<a class="btn btn-sm" href="{{ prev_url }}#operations">← Новее</a>{% endif %}
+      {% if next_url %}<a class="btn btn-sm" href="{{ next_url }}#operations">Старее →</a>{% endif %}
+    </span>
+  </div>
+  {% else %}
+    <p class="empty">Операций {% if filtered %}по заданному фильтру {% endif %}нет.</p>
+  {% endif %}
+</section>
+
+<section class="card" id="accounts">
+  <div class="card-head">
+    <h2>Счета</h2>
+    <a class="btn btn-sm" href="/accounts/new">Создать счёт</a>
+  </div>
+  {% if accounts %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Наименование</th><th>Тип</th><th>Регулярность пополнения</th>
+          <th class="r">Сумма пополнения, ₽</th><th>Месяцев до цели</th><th>Статус</th>
+          <th class="r">Баланс, ₽</th><th class="actions-col"></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for a in accounts %}
+        <tr class="{{ 'row-closed' if a.is_closed else '' }}">
+          <td>{{ a.name }}</td>
+          <td>{{ a.account_type.name }}</td>
+          <td>{{ a.replenish_period|period }}</td>
+          <td class="r">{% if a.replenish_amount is not none %}{{ m.amount(a.replenish_amount) }}{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td>{{ a.months_to_goal if a.months_to_goal is not none else "бессрочно" }}</td>
+          <td>{% if a.is_closed %}<span class="badge badge-closed">Закрыт {{ a.closed_at|ru_date if a.closed_at else "" }}</span>{% else %}<span class="badge badge-open">Открыт</span>{% endif %}</td>
+          <td class="r">{{ m.amount(a.balance) }}</td>
+          <td class="actions-col">
+            <a class="btn btn-sm btn-ghost" href="/accounts/{{ a.id }}/edit">Изменить</a>
+            {% if not a.is_closed %}
+              {% if a.account_type.code == "fund" %}
+                {{ m.post_button("/accounts/" ~ a.id ~ "/reopen", "Открыть заново", confirm="Открыть фонд «" ~ a.name ~ "» заново?\n\n1. Будет создан новый счёт «Фонд» с тем же наименованием.\n2. Остаток старого счёта будет переведён на новый.\n3. Старый счёт будет закрыт.", next="/#accounts") }}
+              {% endif %}
+              {{ m.post_button("/accounts/" ~ a.id ~ "/close", "Закрыть", confirm="Закрыть счёт «" ~ a.name ~ "»? Закрыть можно только счёт с нулевым остатком.", next="/#accounts") }}
+            {% endif %}
+            {{ m.post_button("/accounts/" ~ a.id ~ "/delete", "Удалить", confirm="Удалить счёт «" ~ a.name ~ "»?", cls="btn-ghost btn-danger", next="/#accounts") }}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="empty">Счетов пока нет.</p>
+  {% endif %}
+</section>
+{% endblock %}

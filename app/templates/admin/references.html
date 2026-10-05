@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Справочники{% endblock %}
+{% block content %}
+<div class="page-head"><h1>Справочники</h1></div>
+{% include "admin/_tabs.html" %}
+
+<section class="card" id="account-types">
+  <h2>Типы счетов</h2>
+  <div class="table-wrap">
+    <table class="table table-compact">
+      <thead><tr><th>Наименование</th><th>Код</th><th>Не больше одного счёта</th><th class="r">Порядок</th><th class="actions-col"></th></tr></thead>
+      <tbody>
+      {% for t in account_types %}
+        <tr class="{{ 'row-selected' if at_form.edit_id == t.id else '' }}">
+          <td>{{ t.name }}</td>
+          <td>{% if t.code %}<span class="badge">системный</span>{% endif %}</td>
+          <td>{{ "да" if t.single_per_user else "нет" }}</td>
+          <td class="r">{{ t.sort_order }}</td>
+          <td class="actions-col">
+            <a class="btn btn-sm btn-ghost" href="/admin/references?at={{ t.id }}#account-types">Изменить</a>
+            {% if not t.code %}{{ m.post_button("/admin/account-types/" ~ t.id ~ "/delete", "Удалить", confirm="Удалить тип счёта «" ~ t.name ~ "»?", cls="btn-ghost btn-danger") }}{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <h3>{{ "Изменить тип счёта" if at_form.edit_id else "Добавить тип счёта" }}</h3>
+  {{ m.form_error(at_form) }}
+  <form method="post" action="{{ at_form.action }}" class="inline-fields" novalidate>
+    {{ m.csrf() }}
+    {{ m.input(at_form, "name", "Наименование", required=True, extra='maxlength="100"') }}
+    {{ m.input(at_form, "sort_order", "Порядок", type="number", extra='min="0" max="10000" step="1"') }}
+    {% set locked = edit_at is not none and edit_at.code is not none %}
+    {{ m.checkbox(at_form, "single_per_user", "Не больше одного открытого счёта у пользователя",
+                  extra=('disabled' if locked else ''), checked=(edit_at.single_per_user if locked else none),
+                  hint=("У системного типа не изменяется" if locked else none)) }}
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">{{ "Сохранить" if at_form.edit_id else "Добавить" }}</button>
+      {% if at_form.edit_id %}<a class="btn btn-ghost" href="/admin/references#account-types">Отмена</a>{% endif %}
+    </div>
+  </form>
+</section>
+
+<section class="card" id="operation-types">
+  <h2>Типы операций</h2>
+  <div class="table-wrap">
+    <table class="table table-compact">
+      <thead><tr><th>Наименование</th><th>Код</th><th class="actions-col"></th></tr></thead>
+      <tbody>
+      {% for t in operation_types %}
+        <tr class="{{ 'row-selected' if ot_form and ot_form.edit_id == t.id else '' }}">
+          <td>{{ t.name }}</td><td><code>{{ t.code }}</code></td>
+          <td class="actions-col"><a class="btn btn-sm btn-ghost" href="/admin/references?ot={{ t.id }}#operation-types">Переименовать</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if ot_form %}
+  <h3>Переименовать тип операции</h3>
+  {{ m.form_error(ot_form) }}
+  <form method="post" action="{{ ot_form.action }}" class="inline-fields" novalidate>
+    {{ m.csrf() }}
+    {{ m.input(ot_form, "name", "Наименование", required=True, extra='maxlength="100" autofocus') }}
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Сохранить</button>
+      <a class="btn btn-ghost" href="/admin/references#operation-types">Отмена</a>
+    </div>
+  </form>
+  {% endif %}
+</section>
+
+<section class="card" id="income-kinds">
+  <h2>Виды дохода</h2>
+  <div class="table-wrap">
+    <table class="table table-compact">
+      <thead><tr><th>Наименование</th><th>Код</th><th>Статус</th><th class="r">Порядок</th><th class="actions-col"></th></tr></thead>
+      <tbody>
+      {% for k in income_kinds %}
+        <tr class="{{ 'row-selected' if ik_form.edit_id == k.id else '' }}{{ ' row-closed' if not k.is_active else '' }}">
+          <td>{{ k.name }}</td>
+          <td>{% if k.code %}<span class="badge">системный</span>{% endif %}</td>
+          <td>{{ "активен" if k.is_active else "отключён" }}</td>
+          <td class="r">{{ k.sort_order }}</td>
+          <td class="actions-col">
+            <a class="btn btn-sm btn-ghost" href="/admin/references?ik={{ k.id }}#income-kinds">Изменить</a>
+            {% if not k.code %}
+              {{ m.post_button("/admin/income-kinds/" ~ k.id ~ "/toggle", "Отключить" if k.is_active else "Включить") }}
+              {{ m.post_button("/admin/income-kinds/" ~ k.id ~ "/delete", "Удалить", confirm="Удалить вид дохода «" ~ k.name ~ "»?", cls="btn-ghost btn-danger") }}
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <h3>{{ "Изменить вид дохода" if ik_form.edit_id else "Добавить вид дохода" }}</h3>
+  {{ m.form_error(ik_form) }}
+  <form method="post" action="{{ ik_form.action }}" class="inline-fields" novalidate>
+    {{ m.csrf() }}
+    {{ m.input(ik_form, "name", "Наименование", required=True, extra='maxlength="100"') }}
+    {{ m.input(ik_form, "sort_order", "Порядок", type="number", extra='min="0" max="10000" step="1"') }}
+    {% set ik_locked = edit_ik is not none and edit_ik.code is not none %}
+    {{ m.checkbox(ik_form, "is_active", "Активен", extra=('disabled' if ik_locked else ''), checked=(true if ik_locked else none),
+                  hint=("Системный вид дохода нельзя отключить" if ik_locked else none)) }}
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">{{ "Сохранить" if ik_form.edit_id else "Добавить" }}</button>
+      {% if ik_form.edit_id %}<a class="btn btn-ghost" href="/admin/references#income-kinds">Отмена</a>{% endif %}
+    </div>
+  </form>
+</section>
+{% endblock %}

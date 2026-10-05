@@ -94,6 +94,20 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    for t in ("app_settings", "holidays", "tax_brackets", "income_kinds", "operation_types",
-              "account_types"):
+    # Справочники удаляем только если на них не ссылаются данные пользователей —
+    # иначе откат упал бы на внешних ключах (таблицы целиком удалит откат 0001).
+    for t in ("app_settings", "holidays", "tax_brackets"):
         op.execute(sa.text(f"DELETE FROM {t}"))  # noqa: S608
+    op.execute(sa.text(
+        "DELETE FROM income_kinds k WHERE NOT EXISTS "
+        "(SELECT 1 FROM planning p WHERE p.income_kind_id = k.id)"
+    ))
+    op.execute(sa.text(
+        "DELETE FROM operation_types t WHERE NOT EXISTS "
+        "(SELECT 1 FROM operations o WHERE o.operation_type_id = t.id) AND NOT EXISTS "
+        "(SELECT 1 FROM planning p WHERE p.operation_type_id = t.id)"
+    ))
+    op.execute(sa.text(
+        "DELETE FROM account_types t WHERE NOT EXISTS "
+        "(SELECT 1 FROM accounts a WHERE a.account_type_id = t.id)"
+    ))

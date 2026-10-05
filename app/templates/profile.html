@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Профиль{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Профиль</h1>
+  <div class="actions"><a class="btn btn-ghost" href="/profile/password">Сменить пароль</a></div>
+</div>
+<section class="card narrow">
+  {{ m.form_error(f) }}
+  <form method="post" action="/profile" novalidate>
+    {{ m.csrf() }}
+    <div class="field">
+      <label for="f-email">Email</label>
+      <input id="f-email" type="email" value="{{ user.email }}" readonly disabled>
+    </div>
+    {{ m.input(f, "display_name", "Имя / псевдоним", required=True, extra='maxlength="100"') }}
+    {{ m.money_input(f, "salary", "Зарплата, ₽ в месяц (до налога)") }}
+    <div class="grid-3">
+      {{ m.input(f, "advance_day", "Дата аванса (число месяца)", type="number", extra='min="1" max="31" step="1"') }}
+      {{ m.input(f, "salary_day", "Дата зарплаты (число месяца)", type="number", extra='min="1" max="31" step="1"') }}
+      {{ m.input(f, "advance_calc_day", "Расчёт аванса (число 1–31)", type="number", extra='min="1" max="31" step="1"', hint="Аванс считается пропорционально рабочим дням с 1-го по это число") }}
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Сохранить</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Администрирование{% endblock %}
+{% block content %}
+<div class="page-head"><h1>Администрирование</h1></div>
+{% include "admin/_tabs.html" %}
+
+{% if temp_password %}
+<section class="card temp-password">
+  <h2>Временный пароль</h2>
+  <p>Пароль пользователя <strong>{{ target.email }}</strong> сброшен. Передайте ему временный пароль — он показывается <strong>только один раз</strong>. При входе пользователь должен будет установить новый пароль.</p>
+  <div class="secret"><code data-select-on-click>{{ temp_password }}</code></div>
+</section>
+{% endif %}
+
+<section class="card">
+  <h2>Пользователи</h2>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Email</th><th>Имя</th><th>Роль</th><th>Статус</th><th class="actions-col"></th></tr></thead>
+      <tbody>
+      {% for u in users %}
+        <tr class="{{ 'row-closed' if not u.is_active else '' }}">
+          <td>{{ u.email }}{% if u.id == user.id %} <span class="badge">это вы</span>{% endif %}</td>
+          <td>{{ u.display_name }}</td>
+          <td>{% if u.role == "admin" %}<span class="badge badge-admin">Администратор</span>{% else %}Пользователь{% endif %}</td>
+          <td>
+            {% if u.is_active %}<span class="badge badge-open">Активен</span>{% else %}<span class="badge badge-closed">Заблокирован</span>{% endif %}
+            {% if u.must_change_password %}<span class="badge badge-auto">временный пароль</span>{% endif %}
+          </td>
+          <td class="actions-col">
+            {{ m.post_button("/admin/users/" ~ u.id ~ "/reset-password", "Сбросить пароль", confirm="Сбросить пароль пользователя " ~ u.email ~ "? Все его сессии будут завершены.") }}
+            {% if u.id != user.id %}
+              {% if u.is_active %}
+                {{ m.post_button("/admin/users/" ~ u.id ~ "/active", "Заблокировать", confirm="Заблокировать " ~ u.email ~ "?", cls="btn-ghost btn-danger", fields={"is_active": "0"}) }}
+              {% else %}
+                {{ m.post_button("/admin/users/" ~ u.id ~ "/active", "Разблокировать", fields={"is_active": "1"}) }}
+              {% endif %}
+            {% endif %}
+            {% if u.role == "admin" %}
+              {{ m.post_button("/admin/users/" ~ u.id ~ "/role", "Сделать пользователем", confirm="Снять роль администратора с " ~ u.email ~ "?", fields={"role": "user"}) }}
+            {% else %}
+              {{ m.post_button("/admin/users/" ~ u.id ~ "/role", "Сделать администратором", confirm="Назначить " ~ u.email ~ " администратором?", fields={"role": "admin"}) }}
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card narrow-left">
+  <h2>Настройки</h2>
+  <form method="post" action="/admin/settings">
+    {{ m.csrf() }}
+    <div class="field field-check">
+      <label class="check"><input type="checkbox" name="registration_open" value="1" {% if registration_open %}checked{% endif %}><span>Регистрация новых пользователей открыта</span></label>
+    </div>
+    <div class="form-actions"><button type="submit" class="btn btn-primary">Сохранить</button></div>
+  </form>
+</section>
+{% endblock %}

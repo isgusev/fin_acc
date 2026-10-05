@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Праздничные даты{% endblock %}
+{% block content %}
+<div class="page-head"><h1>Праздничные даты</h1></div>
+{% include "admin/_tabs.html" %}
+<section class="card">
+  <h2>Праздники {{ today.year }} года и далее</h2>
+  <p class="muted">Нерабочие праздничные дни исключаются из рабочих дней при расчёте аванса.</p>
+  {% if holidays %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Дата от</th><th>Дата до</th><th>Наименование</th><th class="actions-col"></th></tr></thead>
+      <tbody>
+      {% for h in holidays %}
+        <tr class="{{ 'row-selected' if f.edit_id == h.id else '' }}">
+          <td class="nowrap">{{ h.date_from|ru_date }}</td>
+          <td class="nowrap">{{ h.date_to|ru_date }}</td>
+          <td>{{ h.name }}</td>
+          <td class="actions-col">
+            <a class="btn btn-sm btn-ghost" href="/admin/holidays?edit={{ h.id }}#holiday-form">Изменить</a>
+            {{ m.post_button("/admin/holidays/" ~ h.id ~ "/delete", "Удалить", confirm="Удалить «" ~ h.name ~ "»?", cls="btn-ghost btn-danger") }}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}<p class="empty">Праздничные даты не заданы.</p>{% endif %}
+</section>
+<section class="card narrow-left" id="holiday-form">
+  <h2>{{ "Изменить праздничную дату" if f.edit_id else "Добавить праздничную дату" }}</h2>
+  {{ m.form_error(f) }}
+  <form method="post" action="{{ f.action }}" novalidate>
+    {{ m.csrf() }}
+    <div class="grid-2">
+      {{ m.input(f, "date_from", "Дата от", type="date", required=True, extra='data-copy-to="f-date_to"') }}
+      {{ m.input(f, "date_to", "Дата до", type="date", hint="По умолчанию равна «Дате от»") }}
+    </div>
+    {{ m.input(f, "name", "Наименование", required=True, extra='maxlength="200"') }}
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">{{ "Сохранить" if f.edit_id else "Добавить" }}</button>
+      {% if f.edit_id %}<a class="btn btn-ghost" href="/admin/holidays">Отмена</a>{% endif %}
+    </div>
+  </form>
+</section>
+{% endblock %}

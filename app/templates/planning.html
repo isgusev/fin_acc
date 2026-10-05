@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Планирование {{ year }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Планирование</h1>
+  <div class="actions">
+    <a class="btn btn-primary" href="/planning/new">Запланировать</a>
+  </div>
+</div>
+
+<div class="year-nav">
+  <a class="btn btn-sm btn-ghost" href="/planning?year={{ year - 1 }}">← {{ year - 1 }}</a>
+  <strong class="year-current">{{ year }}</strong>
+  <a class="btn btn-sm btn-ghost" href="/planning?year={{ year + 1 }}">{{ year + 1 }} →</a>
+  {% if year != today.year %}<a class="btn btn-sm" href="/planning">Текущий год</a>{% endif %}
+</div>
+
+<section class="card stat-card">
+  <div class="stat"><div class="stat-label">Доходы (план)</div><div class="stat-value">{{ m.amount(totals.income) }} ₽</div></div>
+  <div class="stat"><div class="stat-label">Доходы после налога</div><div class="stat-value">{{ m.amount(totals.income_net) }} ₽</div></div>
+  <div class="stat"><div class="stat-label">Расходы (план)</div><div class="stat-value">{{ m.amount(totals.expense) }} ₽</div></div>
+  <div class="stat"><div class="stat-label">Сальдо</div><div class="stat-value">{{ m.amount(totals.income_net - totals.expense) }} ₽</div></div>
+</section>
+
+<section class="card">
+  <h2>План на {{ year }} год</h2>
+  {% if plans %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Дата</th><th>Тип</th><th>Вид дохода</th><th>Наименование</th>
+          <th class="r">Сумма план, ₽</th><th>Налог</th><th class="r">Ставка, %</th>
+          <th class="r">За вычетом налога, ₽</th><th>Источник финансирования</th>
+          <th class="r">Сумма факт, ₽</th><th class="r">Операций</th><th class="actions-col"></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for p in plans %}
+        <tr>
+          <td class="nowrap">{{ p.planned_date|ru_date }}</td>
+          <td><span class="badge badge-{{ p.operation_type.code }}">{{ p.operation_type.name }}</span></td>
+          <td>{{ p.income_kind.name if p.income_kind else "" }}{% if p.is_auto %} <span class="badge badge-auto" title="Создано расчётом плановой зарплаты">авто</span>{% endif %}</td>
+          <td>{{ p.name or "" }}</td>
+          <td class="r">{{ m.amount(p.amount_planned) }}</td>
+          <td>{% if p.operation_type.code == "income" %}{{ "да" if p.is_taxable else "нет" }}{% endif %}</td>
+          <td class="r">{{ p.tax_rate|rate }}</td>
+          <td class="r">{% if p.amount_net is not none %}{{ m.amount(p.amount_net) }}{% endif %}</td>
+          <td>{{ p.funding_account_name or "" }}</td>
+          <td class="r">{{ m.amount(p.amount_fact) }}</td>
+          <td class="r">{{ p.operation_ids|length }}</td>
+          <td class="actions-col">
+            <a class="btn btn-sm btn-ghost" href="/operations/new?plan_id={{ p.id }}&amp;next={{ current_url|urlencode }}" title="Внести фактическую операцию по этому плану">Факт</a>
+            <a class="btn btn-sm btn-ghost" href="/planning/{{ p.id }}/edit">Изменить</a>
+            {{ m.post_button("/planning/" ~ p.id ~ "/delete", "Удалить", confirm="Удалить запись планирования от " ~ (p.planned_date|ru_date) ~ "?", cls="btn-ghost btn-danger", next=current_url) }}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <th colspan="4">Итого доходы / расходы</th>
+          <th class="r" colspan="4">{{ totals.income|money }} / {{ totals.expense|money }}</th>
+          <th colspan="4"></th>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  {% else %}
+    <p class="empty">На {{ year }} год ничего не запланировано.</p>
+  {% endif %}
+</section>
+
+<section class="card narrow-left" id="salary">
+  <h2>Рассчитать плановую зарплату</h2>
+  {% if profile_incomplete %}
+    <div class="alert alert-warning">Для расчёта заполните в <a href="/profile">профиле</a> «Зарплату» и «Дату зарплаты» (а для аванса — «Дату аванса» и «Расчёт аванса»).</div>
+  {% endif %}
+  <p class="muted">Создаёт записи «Доход · Зарплата» с указанной даты до конца её года. Налог рассчитывается по шкале автоматически.</p>
+  {{ m.form_error(sf) }}
+  <form method="post" action="/planning/salary" class="inline-fields" novalidate>
+    {{ m.csrf() }}
+    <input type="hidden" name="year" value="{{ year }}">
+    {{ m.input(sf, "start_date", "Рассчитать плановую зарплату с", type="date", required=True) }}
+    {{ m.checkbox(sf, "replace", "Заменить", hint="Пересоздать уже существующие записи зарплаты (кроме связанных с операциями)") }}
+    <div class="form-actions"><button type="submit" class="btn btn-primary">Рассчитать</button></div>
+  </form>
+</section>
+{% endblock %}

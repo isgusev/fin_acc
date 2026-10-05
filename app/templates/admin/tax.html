@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Расчёт налогов{% endblock %}
+{% block content %}
+<div class="page-head"><h1>Расчёт налогов</h1></div>
+{% include "admin/_tabs.html" %}
+<section class="card">
+  <h2>Действующая шкала налога</h2>
+  <p class="muted">Годовой доход нарастающим итогом → ставка. Применяется к плановой зарплате и премиям.</p>
+  {% if brackets %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th class="r">Сумма дохода от, ₽</th><th class="r">Сумма дохода до, ₽</th><th class="r">Ставка, %</th><th class="actions-col"></th></tr></thead>
+      <tbody>
+      {% for b in brackets %}
+        <tr class="{{ 'row-selected' if f.edit_id == b.id else '' }}">
+          <td class="r">{{ m.amount(b.income_from) }}</td>
+          <td class="r">{% if b.income_to is not none %}{{ m.amount(b.income_to) }}{% else %}<span class="muted">без ограничения</span>{% endif %}</td>
+          <td class="r">{{ b.rate|rate }}</td>
+          <td class="actions-col">
+            <a class="btn btn-sm btn-ghost" href="/admin/tax?edit={{ b.id }}#tax-form">Изменить</a>
+            {{ m.post_button("/admin/tax/" ~ b.id ~ "/delete", "Удалить", confirm="Удалить ступень шкалы от " ~ (b.income_from|money) ~ " ₽?", cls="btn-ghost btn-danger") }}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}<p class="empty">Шкала не задана — налог не удерживается.</p>{% endif %}
+</section>
+<section class="card narrow-left" id="tax-form">
+  <h2>{{ "Изменить ступень" if f.edit_id else "Добавить ступень" }}</h2>
+  {{ m.form_error(f) }}
+  <form method="post" action="{{ f.action }}" novalidate>
+    {{ m.csrf() }}
+    <div class="grid-3">
+      {{ m.money_input(f, "income_from", "Сумма дохода от, ₽", required=True) }}
+      {{ m.money_input(f, "income_to", "Сумма дохода до, ₽", hint="Пусто — без верхней границы") }}
+      {{ m.input(f, "rate", "Ставка, %", required=True, extra='inputmode="decimal" class="input-num" autocomplete="off"') }}
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">{{ "Сохранить" if f.edit_id else "Добавить" }}</button>
+      {% if f.edit_id %}<a class="btn btn-ghost" href="/admin/tax">Отмена</a>{% endif %}
+    </div>
+  </form>
+</section>
+{% endblock %}

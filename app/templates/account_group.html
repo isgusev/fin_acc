@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{{ title }}</h1>
+  <div class="actions">
+    <a class="btn btn-primary" href="/accounts/new?type={{ account_type.id }}&amp;next={{ page_path|urlencode }}">Создать счёт</a>
+    <a class="btn" href="/operations/new?type=transfer&amp;next={{ page_path|urlencode }}">Перевод</a>
+  </div>
+</div>
+
+<section class="card stat-card">
+  <div class="stat">
+    <div class="stat-label">Общий баланс</div>
+    <div class="stat-value">{{ m.amount(total) }} ₽</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Открытых счетов</div>
+    <div class="stat-value">{{ open_items|length }}</div>
+  </div>
+</section>
+
+{% for a in open_items %}
+<section class="card account-card">
+  <div class="card-head">
+    <div>
+      <h2>{{ a.name }}</h2>
+      <div class="muted small">
+        Пополнение: {{ a.replenish_period|period }}{% if a.replenish_amount is not none %}, {{ a.replenish_amount|money }} ₽{% endif %}
+        · До цели: {{ (a.months_to_goal ~ " мес.") if a.months_to_goal is not none else "бессрочно" }}
+      </div>
+    </div>
+    <div class="account-balance">{{ m.amount(a.balance) }} ₽</div>
+  </div>
+  <div class="actions-row">
+    <a class="btn btn-sm" href="/operations/new?type=transfer&amp;next={{ page_path|urlencode }}">Пополнить переводом</a>
+    <a class="btn btn-sm btn-ghost" href="/accounts/{{ a.id }}/edit?next={{ page_path|urlencode }}">Изменить</a>
+    {% if is_fund %}
+      {{ m.post_button("/accounts/" ~ a.id ~ "/reopen", "Открыть заново", confirm="Открыть фонд «" ~ a.name ~ "» заново?\n\n1. Будет создан новый счёт «Фонд» с тем же наименованием и параметрами.\n2. Остаток старого счёта (" ~ (a.balance|money) ~ " ₽) будет переведён на новый.\n3. Старый счёт будет закрыт.", next=page_path) }}
+    {% endif %}
+  </div>
+  <h3>История пополнений</h3>
+  {% set hist = history.get(a.id, []) %}
+  {% if hist %}
+  <div class="table-wrap">
+    <table class="table table-compact">
+      <thead><tr><th>Дата</th><th>Откуда</th><th>Наименование</th><th class="r">Сумма, ₽</th></tr></thead>
+      <tbody>
+      {% for op in hist %}
+        <tr>
+          <td class="nowrap">{{ op.op_date|ru_date }}</td>
+          <td>{% if op.operation_type.code == "transfer" %}{{ op.account.name }}{% else %}{{ op.operation_type.name }}{% endif %}</td>
+          <td>{{ op.name or "" }}</td>
+          <td class="r">{{ m.amount(op.amount) }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="empty">Пополнений пока не было.</p>
+  {% endif %}
+</section>
+{% else %}
+<section class="card"><p class="empty">Счетов с типом «{{ account_type.name }}» пока нет.</p></section>
+{% endfor %}
+
+{% if closed_items %}
+<section class="card">
+  <h2>Закрытые счета</h2>
+  <div class="table-wrap">
+    <table class="table table-compact">
+      <thead><tr><th>Наименование</th><th>Закрыт</th><th class="r">Баланс, ₽</th></tr></thead>
+      <tbody>
+      {% for a in closed_items %}
+        <tr class="row-closed"><td>{{ a.name }}</td><td>{{ a.closed_at|ru_date if a.closed_at else "" }}</td><td class="r">{{ m.amount(a.balance) }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

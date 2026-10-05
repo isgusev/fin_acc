@@ -57,7 +57,7 @@ def create_app() -> FastAPI:
     async def security_middleware(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        if settings.force_https and request.url.scheme != "https":
+        if settings.force_https and request.url.scheme != "https" and request.url.path != "/health":
             return RedirectResponse(str(request.url.replace(scheme="https")), status_code=308)
         response = await call_next(request)
         h = response.headers

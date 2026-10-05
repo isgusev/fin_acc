@@ -179,6 +179,8 @@ def get_user(db: Session, user_id: uuid.UUID) -> User:
 def admin_reset_password(db: Session, admin: User, user_id: uuid.UUID) -> str:
     """Сбрасывает пароль на временный; пользователь обязан сменить его при входе."""
     u = get_user(db, user_id)
+    if u.id == admin.id:
+        raise ConflictError("Свой пароль меняйте в профиле, а не через сброс")
     temp = generate_temp_password()
     u.password_hash = hash_password(temp)
     u.must_change_password = True
@@ -232,6 +234,10 @@ def bootstrap_admin(db: Session) -> None:
         existing.role = UserRole.ADMIN
         db.commit()
         return
-    create_user(
-        db, s.admin_email, s.admin_password.get_secret_value(), "Администратор", UserRole.ADMIN
-    )
+    try:
+        create_user(
+            db, s.admin_email, s.admin_password.get_secret_value(), "Администратор", UserRole.ADMIN
+        )
+    except ConflictError:
+        # Несколько воркеров стартуют одновременно — администратора уже создал другой
+        db.rollback()

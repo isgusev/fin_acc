@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Учёт финансов{% endblock %} · Учёт финансов</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+{% import "_macros.html" as m with context %}
+<header class="topbar">
+  <div class="container topbar-inner">
+    <a class="brand" href="/"><span class="brand-mark">₽</span> Учёт финансов</a>
+    {% if user %}
+    <button class="nav-toggle" type="button" data-nav-toggle aria-controls="main-nav" aria-expanded="false" aria-label="Меню">☰</button>
+    <nav class="nav" id="main-nav">
+      {% if not user.must_change_password %}
+      {% set items = [("/", "Главная"), ("/monthly", "Ежемесячные траты"), ("/funds", "Фонды"), ("/planning", "Планирование"), ("/profile", "Профиль")] %}
+      {% for href, label in items %}
+        <a href="{{ href }}" class="{{ 'active' if (path == href or (href != '/' and path.startswith(href))) else '' }}">{{ label }}</a>
+      {% endfor %}
+      {% if user.is_admin %}
+        <a href="/admin" class="{{ 'active' if path.startswith('/admin') else '' }}">Администрирование</a>
+      {% endif %}
+      {% endif %}
+      <span class="nav-user" title="{{ user.email }}">{{ user.display_name }}</span>
+      <form method="post" action="/logout" class="nav-logout">
+        {{ m.csrf() }}
+        <button type="submit" class="btn btn-ghost btn-sm">Выйти</button>
+      </form>
+    </nav>
+    {% endif %}
+  </div>
+</header>
+<main class="container main">
+  {% if flash %}
+  <div class="alert {{ 'alert-error' if flash_error else 'alert-success' }}" role="status" data-dismissible>
+    <span>{{ flash }}</span>
+    <button type="button" class="alert-close" data-dismiss aria-label="Закрыть">×</button>
+  </div>
+  {% endif %}
+  {% block content %}{% endblock %}
+</main>
+<footer class="footer container">Учёт личных финансов</footer>
+</body>
+</html>

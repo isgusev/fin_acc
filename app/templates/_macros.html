@@ -1,0 +1,75 @@
+{% macro csrf() %}<input type="hidden" name="csrf_token" value="{{ csrf_token }}">{% endmacro %}
+
+{% macro amount(v, cls="") -%}
+<span class="num {{ cls }}{% if v is not none and v < 0 %} neg{% endif %}">{{ v|money }}</span>
+{%- endmacro %}
+
+{% macro form_error(f) -%}
+{% if f and f.error %}<div class="alert alert-error" role="alert">{{ f.error }}</div>{% endif %}
+{%- endmacro %}
+
+{% macro field_error(f, name) -%}
+{% if f.errors.get(name) %}<div class="field-error">{{ f.errors[name] }}</div>{% endif %}
+{%- endmacro %}
+
+{# Текстовое поле. extra — дополнительные атрибуты input, group — атрибуты обёртки #}
+{% macro input(f, name, label, type="text", required=False, hint=None, extra="", group="", value=None, placeholder="") -%}
+<div class="field{% if f.errors.get(name) %} has-error{% endif %}" {{ group|safe }}>
+  <label for="f-{{ name }}">{{ label }}{% if required %} <span class="req" title="Обязательное поле">*</span>{% endif %}</label>
+  <input id="f-{{ name }}" name="{{ name }}" type="{{ type }}"
+         {% if type != "password" %}value="{{ f.v(name) if value is none else value }}"{% endif %}
+         {% if placeholder %}placeholder="{{ placeholder }}"{% endif %}
+         {% if required %}required{% endif %} {{ extra|safe }}>
+  {% if hint %}<div class="hint">{{ hint }}</div>{% endif %}
+  {{ field_error(f, name) }}
+</div>
+{%- endmacro %}
+
+{% macro money_input(f, name, label, required=False, hint=None, group="", extra="") -%}
+{{ input(f, name, label, required=required, hint=hint, group=group, placeholder="0,00", extra='inputmode="decimal" autocomplete="off" class="input-num" ' ~ extra) }}
+{%- endmacro %}
+
+{# options — список (value, label) или (value, label, attrs) #}
+{% macro select(f, name, label, options, required=False, empty=None, hint=None, extra="", group="") -%}
+<div class="field{% if f.errors.get(name) %} has-error{% endif %}" {{ group|safe }}>
+  <label for="f-{{ name }}">{{ label }}{% if required %} <span class="req" title="Обязательное поле">*</span>{% endif %}</label>
+  <select id="f-{{ name }}" name="{{ name }}" {% if required %}required{% endif %} {{ extra|safe }}>
+    {% if empty is not none %}<option value="">{{ empty }}</option>{% endif %}
+    {% for o in options %}
+      <option value="{{ o[0] }}" {% if f.v(name) == o[0]|string %}selected{% endif %} {{ (o[2] if o|length > 2 else '')|safe }}>{{ o[1] }}</option>
+    {% endfor %}
+  </select>
+  {% if hint %}<div class="hint">{{ hint }}</div>{% endif %}
+  {{ field_error(f, name) }}
+</div>
+{%- endmacro %}
+
+{% macro checkbox(f, name, label, hint=None, extra="", group="", checked=None) -%}
+<div class="field field-check{% if f.errors.get(name) %} has-error{% endif %}" {{ group|safe }}>
+  <label class="check">
+    <input type="checkbox" id="f-{{ name }}" name="{{ name }}" value="1"
+           {% if (f.checked(name) if checked is none else checked) %}checked{% endif %} {{ extra|safe }}>
+    <span>{{ label }}</span>
+  </label>
+  {% if hint %}<div class="hint">{{ hint }}</div>{% endif %}
+  {{ field_error(f, name) }}
+</div>
+{%- endmacro %}
+
+{% macro textarea(f, name, label, rows=3, group="") -%}
+<div class="field{% if f.errors.get(name) %} has-error{% endif %}" {{ group|safe }}>
+  <label for="f-{{ name }}">{{ label }}</label>
+  <textarea id="f-{{ name }}" name="{{ name }}" rows="{{ rows }}">{{ f.v(name) }}</textarea>
+  {{ field_error(f, name) }}
+</div>
+{%- endmacro %}
+
+{# Кнопка-форма POST с подтверждением #}
+{% macro post_button(action, label, confirm=None, cls="btn-ghost", next=None, fields=None) -%}
+<form method="post" action="{{ action }}" class="inline-form"{% if confirm %} data-confirm="{{ confirm }}"{% endif %}>
+  {{ csrf() }}
+  {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+  {% for k, v in (fields or {}).items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+  <button type="submit" class="btn btn-sm {{ cls }}">{{ label }}</button>
+</form>
+{%- endmacro %}

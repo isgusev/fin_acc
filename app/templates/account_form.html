@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}{{ "Изменение счёта" if account else "Новый счёт" }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{{ "Изменение счёта" if account else "Новый счёт" }}</h1>
+  <div class="actions"><a class="btn btn-ghost" href="{{ f.v('next') or '/' }}">← Назад</a></div>
+</div>
+<section class="card narrow">
+  {% if account and account.is_closed %}<div class="alert alert-info">Счёт закрыт {{ account.closed_at|ru_date if account.closed_at else "" }}.</div>{% endif %}
+  {{ m.form_error(f) }}
+  <form method="post" action="{{ f.action }}" novalidate>
+    {{ m.csrf() }}
+    <input type="hidden" name="next" value="{{ f.v('next') or '/' }}">
+    {{ m.input(f, "name", "Наименование", required=True, extra='maxlength="100" autofocus') }}
+    {% set type_opts = [] %}
+    {% for t in account_types %}{% set _ = type_opts.append((t.id, t.name ~ (" (не больше одного)" if t.single_per_user else ""))) %}{% endfor %}
+    {{ m.select(f, "account_type_id", "Тип счёта", type_opts, required=True, empty="— выберите тип —") }}
+    <div class="grid-2">
+      {{ m.select(f, "replenish_period", "Регулярность пополнения", replenish_periods) }}
+      {{ m.money_input(f, "replenish_amount", "Сумма пополнения, ₽") }}
+    </div>
+    {{ m.input(f, "months_to_goal", "Количество месяцев до цели", type="number", extra='min="1" max="1200" step="1"', placeholder="бессрочно", hint="Оставьте пустым — «бессрочно»") }}
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Сохранить</button>
+      <a class="btn btn-ghost" href="{{ f.v('next') or '/' }}">Отмена</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

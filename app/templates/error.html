@@ -1,2 +1,11 @@
-<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Ошибка</title></head>
-<body><h1>Ошибка {{ status_code }}</h1><p>{{ message }}</p><p><a href="/">На главную</a></p></body></html>
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Ошибка {{ status_code }}{% endblock %}
+{% block content %}
+<section class="card error-card">
+  <div class="error-code">{{ status_code }}</div>
+  <h1>{% if status_code == 404 %}Не найдено{% elif status_code == 403 %}Доступ запрещён{% elif status_code >= 500 %}Ошибка сервера{% else %}Ошибка{% endif %}</h1>
+  <p class="lead">{{ message }}</p>
+  <p><a class="btn btn-primary" href="/">На главную</a></p>
+</section>
+{% endblock %}

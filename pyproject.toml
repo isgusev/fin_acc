@@ -63,4 +63,8 @@ exclude = ["migrations/", "tests/"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
-filterwarnings = ["ignore::DeprecationWarning:passlib.*"]
+filterwarnings = [
+    "ignore::DeprecationWarning:passlib.*",
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated",
+    "ignore:No path_separator found in configuration:DeprecationWarning",
+]

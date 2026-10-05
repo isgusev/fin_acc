@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}{{ "Изменение плана" if plan else "Новая запись планирования" }}{% endblock %}
+{% block content %}
+{% set back = "/planning?year=" ~ (plan.planned_date.year if plan else today.year) %}
+<div class="page-head">
+  <h1>{{ "Изменение плана" if plan else "Запланировать" }}</h1>
+  <div class="actions"><a class="btn btn-ghost" href="{{ back }}">← Планирование</a></div>
+</div>
+<section class="card narrow">
+  {% if plan and plan.is_auto %}<div class="alert alert-info">Запись создана расчётом плановой зарплаты.</div>{% endif %}
+  {{ m.form_error(f) }}
+  <form method="post" action="{{ f.action }}" data-plan-form novalidate>
+    {{ m.csrf() }}
+    <div class="field{% if f.errors.get('operation_type') %} has-error{% endif %}">
+      <span class="label">Тип <span class="req">*</span></span>
+      <div class="segmented" role="radiogroup">
+        <label class="seg seg-income"><input type="radio" name="operation_type" value="income" data-op-type {% if f.v('operation_type') == 'income' %}checked{% endif %}><span>Доход</span></label>
+        <label class="seg seg-expense"><input type="radio" name="operation_type" value="expense" data-op-type {% if f.v('operation_type') == 'expense' %}checked{% endif %}><span>Расход</span></label>
+      </div>
+      {{ m.field_error(f, "operation_type") }}
+    </div>
+
+    <div class="grid-2">
+      {{ m.input(f, "planned_date", "Дата", type="date", required=True) }}
+      {{ m.money_input(f, "amount_planned", "Сумма план, ₽", required=True) }}
+    </div>
+    {{ m.input(f, "name", "Наименование", extra='maxlength="200"') }}
+
+    {% set kind_opts = [] %}
+    {% for k in income_kinds %}{% set _ = kind_opts.append((k.id, k.name ~ ("" if k.is_active else " (отключён)"), 'data-code="' ~ (k.code or "") ~ '" data-auto="' ~ ("1" if k.code in auto_tax_kinds else "") ~ '"')) %}{% endfor %}
+    {{ m.select(f, "income_kind_id", "Вид дохода", kind_opts, required=True, empty="— выберите —", group='data-show-for="income"', extra='data-kind-select') }}
+
+    <div class="grid-2" data-show-for="income">
+      {{ m.checkbox(f, "is_taxable", "Облагается налогом", extra="data-taxable") }}
+      <div class="field{% if f.errors.get('tax_rate') %} has-error{% endif %}">
+        <label for="f-tax_rate">Ставка налога, %</label>
+        <input id="f-tax_rate" name="tax_rate" type="text" inputmode="decimal" class="input-num" value="{{ f.v('tax_rate') }}" data-rate-input autocomplete="off">
+        <div class="hint" data-auto-hint hidden>Рассчитывается автоматически по шкале</div>
+        {{ m.field_error(f, "tax_rate") }}
+      </div>
+    </div>
+    <p class="hint" data-salary-hint hidden>Зарплата всегда облагается налогом.</p>
+
+    {% set acc_opts = [] %}
+    {% for a in accounts %}{% set _ = acc_opts.append((a.id|string, a.name ~ " · " ~ a.account_type.name ~ (" (закрыт)" if a.is_closed else ""))) %}{% endfor %}
+    {{ m.select(f, "funding_account_id", "Источник финансирования", acc_opts, empty="— не указан —", group='data-show-for="expense"') }}
+
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Сохранить</button>
+      <a class="btn btn-ghost" href="{{ back }}">Отмена</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

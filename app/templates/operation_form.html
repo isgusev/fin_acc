@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}{{ "Изменение операции" if op else "Новая операция" }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{{ "Изменение операции" if op else "Новая операция" }}</h1>
+  <div class="actions"><a class="btn btn-ghost" href="{{ f.v('next') or '/' }}">← Назад</a></div>
+</div>
+<section class="card narrow">
+  {{ m.form_error(f) }}
+  <form method="post" action="{{ f.action }}" data-op-form novalidate>
+    {{ m.csrf() }}
+    <input type="hidden" name="next" value="{{ f.v('next') or '/' }}">
+
+    <div class="field{% if f.errors.get('operation_type') %} has-error{% endif %}">
+      <span class="label">Тип операции <span class="req">*</span></span>
+      <div class="segmented" role="radiogroup">
+        {% for t in operation_types %}
+        <label class="seg seg-{{ t.code }}">
+          <input type="radio" name="operation_type" value="{{ t.code }}" data-op-type {% if f.v('operation_type') == t.code %}checked{% endif %}>
+          <span>{{ t.name }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      {{ m.field_error(f, "operation_type") }}
+    </div>
+
+    <div class="field" data-show-for="income">
+      <label for="f-unallocated">Счёт</label>
+      <input id="f-unallocated" type="text" value="{{ unallocated.name if unallocated else 'Нет счёта «Нераспределённый доход»' }}" disabled>
+      <div class="hint">Доход всегда зачисляется на счёт «Нераспределённый доход»</div>
+      {% if not unallocated %}<div class="field-error">Создайте счёт с типом «Нераспределённый доход», чтобы вносить доходы</div>{% endif %}
+      {{ m.field_error(f, "account_id") if f.v('operation_type') == 'income' else '' }}
+    </div>
+
+    {% set account_opts = [] %}
+    {% for a in accounts %}{% set _ = account_opts.append((a.id|string, a.name ~ " · " ~ a.account_type.name)) %}{% endfor %}
+    {{ m.select(f, "account_id", "Счёт", account_opts, required=True, empty="— выберите счёт —",
+                group='data-show-for="expense transfer"', extra='data-label-transfer="Счёт-источник" data-label-default="Счёт"') }}
+    {{ m.select(f, "target_account_id", "Счёт-назначение", account_opts, required=True, empty="— выберите счёт —",
+                group='data-show-for="transfer"') }}
+
+    <div class="grid-2">
+      {{ m.input(f, "op_date", "Дата", type="date", required=True) }}
+      {{ m.money_input(f, "amount", "Сумма, ₽", required=True) }}
+    </div>
+
+    <div class="field{% if f.errors.get('name') %} has-error{% endif %}">
+      <label for="f-name">Наименование <span class="req" data-show-for="expense">*</span></label>
+      <input id="f-name" name="name" type="text" value="{{ f.v('name') }}" maxlength="200">
+      <div class="hint" data-show-for="expense">Для расхода наименование обязательно</div>
+      {{ m.field_error(f, "name") }}
+    </div>
+    {{ m.input(f, "category", "Категория", extra='maxlength="100"') }}
+
+    {% set plan_opts = [] %}
+    {% for p in plans %}{% set _ = plan_opts.append((p.id|string, p|plan_label, 'data-type="' ~ p.operation_type.code ~ '"')) %}{% endfor %}
+    {{ m.select(f, "plan_id", "Связь с планом", plan_opts, empty="— без плана —",
+                group='data-show-for="income expense"', extra='data-plan-select',
+                hint="Для дохода выбор плана обязателен; для расхода — по желанию") }}
+    {% if not plans %}<p class="hint" data-show-for="income">Нет записей планирования — сначала <a href="/planning/new">запланируйте доход</a>.</p>{% endif %}
+
+    {{ m.textarea(f, "comment", "Комментарий", rows=2) }}
+
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Сохранить</button>
+      <a class="btn btn-ghost" href="{{ f.v('next') or '/' }}">Отмена</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

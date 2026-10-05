@@ -1,0 +1,14 @@
+# Конфигурация деплоя на Amvera (https://docs.amvera.ru)
+meta:
+  environment: docker
+  toolchain:
+    name: docker
+    version: latest
+
+build:
+  dockerfile: Dockerfile
+  skip: false
+
+run:
+  containerPort: 8000
+  persistenceMount: /data

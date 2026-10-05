@@ -18,6 +18,7 @@ STATIC_DIR = BASE_DIR / "static"
 
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 FLASH_COOKIE = "fa_flash"
+FLASH_ERROR_PREFIX = "!"
 
 
 def fmt_money(v: Decimal | int | float | None) -> str:
@@ -42,7 +43,35 @@ def fmt_period(v: ReplenishPeriod | str | None) -> str:
     return REPLENISH_PERIOD_LABELS.get(ReplenishPeriod(v), str(v))
 
 
+def fmt_money_input(v: Decimal | int | float | None) -> str:
+    """Значение для поля ввода суммы: 1234.5 → «1234,50»."""
+    if v is None:
+        return ""
+    return f"{Decimal(v):.2f}".replace(".", ",")
+
+
+def fmt_rate(v: Decimal | int | float | None) -> str:
+    """Ставка без лишних нулей: 13.00 → «13», 13.50 → «13,5»."""
+    if v is None:
+        return ""
+    s = f"{Decimal(v):f}"
+    if "." in s:
+        s = s.rstrip("0").rstrip(".")
+    return s.replace(".", ",")
+
+
+def plan_label(p: Any) -> str:
+    """Подпись записи планирования: «10.01.2026 · Зарплата · 191 400,00»."""
+    if p is None:
+        return ""
+    title = p.name or (p.income_kind.name if p.income_kind else None) or p.operation_type.name
+    return f"{fmt_date(p.planned_date)} · {title} · {fmt_money(p.amount_planned)}"
+
+
 templates.env.filters["money"] = fmt_money
+templates.env.filters["money_input"] = fmt_money_input
+templates.env.filters["rate"] = fmt_rate
+templates.env.filters["plan_label"] = plan_label
 templates.env.filters["ru_date"] = fmt_date
 templates.env.filters["period"] = fmt_period
 templates.env.globals["replenish_periods"] = list(REPLENISH_PERIOD_LABELS.items())
@@ -55,11 +84,18 @@ def render(
     from app.deps import anon_csrf_token
 
     sess = getattr(request.state, "user_session", None)
+    flash = unquote(request.cookies.get(FLASH_COOKIE, ""))[:300] or None
+    flash_error = bool(flash and flash.startswith(FLASH_ERROR_PREFIX))
+    if flash and flash_error:
+        flash = flash.removeprefix(FLASH_ERROR_PREFIX) or None
     ctx: dict[str, Any] = {
         "user": sess.user if sess else None,
         "csrf_token": sess.csrf_token if sess else anon_csrf_token(request),
-        "flash": unquote(request.cookies.get(FLASH_COOKIE, ""))[:300] or None,
+        "flash": flash,
+        "flash_error": flash_error,
         "today": date.today(),
+        "path": request.url.path,
+        "current_url": request.url.path + (f"?{request.url.query}" if request.url.query else ""),
     }
     ctx.update(context or {})
     response = templates.TemplateResponse(request, name, ctx, status_code=status_code)
@@ -68,10 +104,15 @@ def render(
     return response
 
 
-def redirect(url: str, flash: str | None = None) -> RedirectResponse:
-    """PRG-редирект (303) с необязательным однократным сообщением для следующей страницы."""
+def redirect(url: str, flash: str | None = None, error: bool = False) -> RedirectResponse:
+    """PRG-редирект (303) с необязательным однократным сообщением для следующей страницы.
+
+    error=True — сообщение показывается как ошибка.
+    """
     response = RedirectResponse(url, status_code=303)
     if flash:
+        if error:
+            flash = FLASH_ERROR_PREFIX + flash
         response.set_cookie(
             FLASH_COOKIE, quote(flash), max_age=60, httponly=True, samesite="lax", path="/"
         )
