@@ -351,10 +351,43 @@ def test_salary_calc_requires_salary(db, user, salary):
 
 
 def test_salary_calc_advance_requires_calc_day(db, user):
-    set_profile(db, user, salary=D("100000"), salary_day=10, advance_day=25)
+    # профиль, заполненный до появления проверок, отвергается и при расчёте
+    user.salary, user.salary_day, user.advance_day, user.advance_calc_day = (
+        D("100000"),
+        10,
+        25,
+        None,
+    )
+    db.flush()
     with pytest.raises(ValidationAppError) as ei:
         plan_svc.calculate_salary(db, user, date(2026, 1, 1), False)
     assert ei.value.field == "advance_calc_day"
+
+
+@pytest.mark.parametrize(
+    ("advance_day", "salary_day", "calc_day", "field"),
+    [
+        (25, 10, None, "advance_calc_day"),  # аванс без «Расчёта аванса»
+        (15, 10, 20, "advance_calc_day"),  # «Расчёт аванса» позже «Даты аванса»
+        (25, 25, 15, "advance_day"),  # аванс и зарплата в один день
+    ],
+)
+def test_profile_advance_days_validation(db, user, advance_day, salary_day, calc_day, field):
+    with pytest.raises(ValidationAppError) as ei:
+        set_profile(
+            db,
+            user,
+            salary="100000",
+            advance_day=advance_day,
+            salary_day=salary_day,
+            advance_calc_day=calc_day,
+        )
+    assert ei.value.field == field
+
+
+def test_profile_advance_calc_day_equal_to_advance_day_ok(db, user):
+    set_profile(db, user, salary="100000", advance_day=15, salary_day=1, advance_calc_day=15)
+    assert user.advance_calc_day == 15
 
 
 def test_salary_calc_without_advance(db, user):
@@ -381,19 +414,50 @@ def test_salary_calc_start_on_salary_day_included(db, user):
 
 
 def test_salary_calc_with_advance(db, user):
+    """Аванс 20-го за текущий месяц, зарплата 5-го — остаток за предыдущий месяц."""
     set_profile(db, user, salary=D("300000"), salary_day=5, advance_day=20, advance_calc_day=15)
     r = plan_svc.calculate_salary(db, user, date(2026, 1, 1), False)
-    assert len(r.created) == 24
-    by_date = {p.planned_date: p.amount_planned for p in salary_plans(db, user)}
-    assert len(by_date) == 24
-    # январь: 15 рабочих дней (1–11 праздники), по 15-е — 4
+    by_date = {p.planned_date: p.amount_planned for p in r.created}
+    # 12 авансов + 12 зарплат за дек-2025…ноя-2026 + 05.01.2027 за декабрь 2026
+    assert len(r.created) == 25
+    # 05.01.2026 — остаток за декабрь 2025: 23 рабочих дня, по 15-е — 11
+    assert by_date[date(2026, 1, 5)] == D("156521.74")
+    # январь 2026: 15 рабочих дней (1–11 праздники), по 15-е — 4 → аванс 80 000
     assert by_date[date(2026, 1, 20)] == D("80000.00")
-    assert by_date[date(2026, 1, 5)] == D("220000.00")
+    assert by_date[date(2026, 2, 5)] == D("220000.00")  # остаток за январь
     # февраль: 19 рабочих дней (23.02 праздник), по 15-е — 10
     assert by_date[date(2026, 2, 20)] == D("157894.74")
-    assert by_date[date(2026, 2, 5)] == D("142105.26")
-    for m in range(1, 13):
-        assert by_date[date(2026, m, 20)] + by_date[date(2026, m, 5)] == D("300000.00")
+    assert by_date[date(2026, 3, 5)] == D("142105.26")
+    for m in range(1, 13):  # аванс за месяц + остаток за него в следующем месяце = оклад
+        y, nm = (2027, 1) if m == 12 else (2026, m + 1)
+        assert by_date[date(2026, m, 20)] + by_date[date(y, nm, 5)] == D("300000.00")
+
+
+def test_salary_calc_user_example_november_2026(db, user):
+    """Аванс 25-го, зарплата 10-го, «Расчёт аванса» 15, оклад 100 000, учёт с 01.11.2026."""
+    set_profile(db, user, salary="100000", advance_day=25, salary_day=10, advance_calc_day=15)
+    r = plan_svc.calculate_salary(db, user, date(2026, 11, 1), False)
+    got = {p.planned_date: p.amount_planned for p in r.created}
+    # октябрь 2026: 22 рабочих дня, по 15-е — 11 → остаток 50 000 выплачивается 10.11
+    assert got[date(2026, 11, 10)] == D("50000.00")
+    assert got[date(2026, 11, 25)] == D("45000.00")  # аванс за ноябрь: 100000 / 20 × 9
+    assert got[date(2026, 12, 10)] == D("55000.00")  # остаток за ноябрь: 100000 / 20 × 11
+    # декабрь: 22 рабочих дня (31.12 праздник), по 15-е — 11 → 50 000 / 50 000
+    assert got[date(2026, 12, 25)] == D("50000.00")
+    assert got[date(2027, 1, 10)] == D("50000.00")  # остаток за декабрь — уже в 2027 году
+    assert len(got) == 5
+    # выплата января 2027 начинает налоговую базу нового года
+    (jan,) = [p for p in r.created if p.planned_date.year == 2027]
+    assert jan.tax_rate == D("13.00")
+
+
+def test_salary_calc_replace_covers_next_january(db, user):
+    set_profile(db, user, salary="100000", advance_day=25, salary_day=10, advance_calc_day=15)
+    plan_svc.calculate_salary(db, user, date(2026, 12, 1), False)
+    r = plan_svc.calculate_salary(db, user, date(2026, 12, 1), True)
+    assert (len(r.created), r.replaced, r.skipped) == (3, 3, 0)
+    r = plan_svc.calculate_salary(db, user, date(2026, 12, 1), False)
+    assert (len(r.created), r.skipped) == (0, 3)
 
 
 def test_salary_calc_clamps_day_31(db, user):
@@ -528,3 +592,60 @@ def test_calculate_salary_without_prior_income_keeps_saved_value(db, user):
     plan_svc.set_prior_income(db, user, 2026, D("700000"))
     plan_svc.calculate_salary(db, user, date(2026, 12, 1), True)
     assert plan_svc.get_prior_income(db, user, 2026) == D("700000.00")
+
+
+# ---------------------------------------------------------------- налоги: проверки из ТЗ
+
+
+def test_huge_bonus_crosses_two_brackets(db, user, refs):
+    """База 2 300 000, премия 3 000 000: 100 000 × 13 % + 2 600 000 × 15 % + 300 000 × 18 %."""
+    plan_svc.set_prior_income(db, user, 2026, D("2300000"))
+    bonus = plan_svc.create_plan(
+        db,
+        user,
+        plan_in(
+            operation_type="income",
+            income_kind_id=refs.bonus_kind,
+            amount_planned=D("3000000"),
+            is_taxable=True,
+            planned_date=date(2026, 6, 1),
+        ),
+    )
+    tax = D("13000") + D("390000") + D("54000")
+    assert bonus.tax_rate == D("18.00")
+    assert bonus.amount_net == D("3000000") - tax
+
+
+def test_mid_year_bonus_recomputes_later_payments_only(db, user, refs):
+    set_profile(db, user, salary="300000", salary_day=10)
+    plan_svc.calculate_salary(db, user, date(2026, 1, 1), False)
+
+    def rates():
+        return {p.planned_date: p.tax_rate for p in salary_plans(db, user)}
+
+    before = rates()
+    assert before[date(2026, 7, 10)] == D("13.00")  # база 1 800 000
+
+    bonus = plan_svc.create_plan(
+        db,
+        user,
+        plan_in(
+            operation_type="income",
+            income_kind_id=refs.bonus_kind,
+            amount_planned=D("1000000"),
+            is_taxable=True,
+            planned_date=date(2026, 6, 15),
+        ),
+    )
+    # премия: база 1 800 000 → 600 000 по 13 % и 400 000 по 15 %
+    assert (bonus.tax_rate, bonus.amount_net) == (D("15.00"), D("862000.00"))
+    after = rates()
+    for d, rate in after.items():
+        if d < date(2026, 6, 15):
+            assert rate == before[d]  # выплаты до премии не меняются
+    assert after[date(2026, 7, 10)] == D("15.00")  # база 2 800 000
+    # 2 800 000 + 5 × 300 000 = 4 300 000; 12.10: 4 300 000 + 300 000 = 4 600 000 < 5 000 000
+    assert after[date(2026, 12, 10)] == D("15.00")
+
+    plan_svc.delete_plan(db, user, bonus.id)  # удаление премии возвращает прежние ставки
+    assert rates() == before

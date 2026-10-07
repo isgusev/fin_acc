@@ -289,6 +289,74 @@ class SalaryCalcResult:
     skipped: int
 
 
+def check_advance_days(
+    advance_day: int, salary_day: int | None, advance_calc_day: int | None
+) -> None:
+    """Согласованность «Даты аванса», «Даты зарплаты» и «Расчёта аванса» в профиле."""
+    if advance_calc_day is None:
+        raise ValidationAppError(
+            "При указанной «Дате аванса» заполните «Расчёт аванса»", "advance_calc_day"
+        )
+    if advance_calc_day > advance_day:
+        raise ValidationAppError(
+            "«Расчёт аванса» не может быть позже «Даты аванса»: аванс выплачивается "
+            "за уже отработанные дни",
+            "advance_calc_day",
+        )
+    if salary_day is not None and salary_day == advance_day:
+        raise ValidationAppError(
+            "«Дата аванса» и «Дата зарплаты» должны различаться", "advance_day"
+        )
+
+
+def _next_month(year: int, month: int) -> tuple[int, int]:
+    return (year + 1, 1) if month == 12 else (year, month + 1)
+
+
+def _prev_month(year: int, month: int) -> tuple[int, int]:
+    return (year - 1, 12) if month == 1 else (year, month - 1)
+
+
+def salary_schedule(
+    salary: Decimal,
+    start_date: date,
+    salary_day: int,
+    advance_day: int | None,
+    advance_calc_day: int | None,
+    holidays: set[date],
+) -> list[tuple[date, Decimal]]:
+    """Плановые выплаты зарплаты с start_date: список (дата выплаты, сумма до налога).
+
+    Без аванса — одна выплата в месяц на «Дату зарплаты» до конца года start_date.
+
+    С авансом каждый «рабочий» месяц W делится на две выплаты:
+      аванс    = зарплата / рабочих дней W × рабочих дней W с 1-го по «Расчёт аванса»
+                 — выплачивается в месяце W на «Дату аванса»;
+      зарплата = зарплата / рабочих дней W × оставшихся рабочих дней W
+                 — выплачивается на «Дату зарплаты»: в следующем месяце, если она раньше
+                 «Даты аванса» (зарплата 10-го за прошлый месяц), иначе в том же месяце.
+    Поэтому 10 января выплачивается остаток за декабрь прошлого года, а остаток за декабрь
+    года расчёта — 10 января следующего года (входит в налоговую базу следующего года).
+    Выплаты с датой раньше start_date не создаются.
+    """
+    year = start_date.year
+    out: list[tuple[date, Decimal]] = []
+    if advance_day is None or advance_calc_day is None:
+        for month in range(start_date.month, 13):
+            out.append((clamp_day(year, month, salary_day), salary))
+    else:
+        pay_next_month = salary_day < advance_day
+        # рабочий месяц, остаток за который может выплачиваться в месяце start_date
+        wy, wm = _prev_month(year, start_date.month) if pay_next_month else (year, start_date.month)
+        while (wy, wm) <= (year, 12):
+            adv = advance_amount(salary, wy, wm, advance_calc_day, holidays)
+            out.append((clamp_day(wy, wm, advance_day), adv))
+            py, pm = _next_month(wy, wm) if pay_next_month else (wy, wm)
+            out.append((clamp_day(py, pm, salary_day), money(salary - adv)))
+            wy, wm = _next_month(wy, wm)
+    return sorted((d, a) for d, a in out if d >= start_date and a > 0)
+
+
 def calculate_salary(
     db: Session,
     user: User,
@@ -298,9 +366,7 @@ def calculate_salary(
 ) -> SalaryCalcResult:
     """«Рассчитать плановую зарплату с <дата>» — до конца календарного года.
 
-    Без аванса: одна запись в месяц на «Дату зарплаты» на всю сумму.
-    С авансом: запись на «Дату аванса» (пропорционально рабочим дням по «Расчёт аванса»)
-    и запись на «Дату зарплаты» на остаток. Праздники исключаются из рабочих дней.
+    Суммы и даты выплат — см. salary_schedule. Праздники исключаются из рабочих дней.
     replace=False — даты, на которые уже есть плановая зарплата, пропускаются.
     replace=True — существующие записи зарплаты в периоде удаляются и создаются заново
     (кроме уже связанных с фактическими операциями: они сохраняются).
@@ -311,30 +377,22 @@ def calculate_salary(
         raise ValidationAppError("Заполните «Дату зарплаты» в профиле", "salary_day")
     if not user.salary or user.salary <= 0:
         raise ValidationAppError("Заполните «Зарплату» в профиле", "salary")
-    if user.advance_day is not None and user.advance_calc_day is None:
-        raise ValidationAppError(
-            "Для расчёта аванса заполните «Расчёт аванса» в профиле", "advance_calc_day"
-        )
+    if user.advance_day is not None:
+        check_advance_days(user.advance_day, user.salary_day, user.advance_calc_day)
 
     year = start_date.year
-    end_date = date(year, 12, 31)
     if prior_income is not None:
         _upsert_prior_income(db, user, year, prior_income)
-    salary = user.salary
-    holidays = holiday_dates(references.holiday_ranges_for_year(db, year))
+    holidays: set[date] = set()
+    for y in (year - 1, year, year + 1):
+        holidays |= holiday_dates(references.holiday_ranges_for_year(db, y))
     income = references.operation_type_by_code(db, OperationTypeCode.INCOME.value)
     salary_kind = references.income_kind_by_code(db, IncomeKindCode.SALARY.value)
 
-    planned: list[tuple[date, Decimal]] = []
-    for month in range(start_date.month, 13):
-        pay_date = clamp_day(year, month, user.salary_day)
-        if user.advance_day is not None and user.advance_calc_day is not None:
-            adv = advance_amount(salary, year, month, user.advance_calc_day, holidays)
-            planned.append((clamp_day(year, month, user.advance_day), adv))
-            planned.append((pay_date, money(salary - adv)))
-        else:
-            planned.append((pay_date, salary))
-    planned = [(d, a) for d, a in planned if d >= start_date and a > 0]
+    planned = salary_schedule(
+        user.salary, start_date, user.salary_day, user.advance_day, user.advance_calc_day, holidays
+    )
+    end_date = max([date(year, 12, 31), *(d for d, _ in planned)])
 
     existing = db.scalars(
         select(Planning).where(
@@ -383,7 +441,8 @@ def calculate_salary(
         db.add(p)
         created.append(p)
     db.flush()
-    recompute_year_taxes(db, user, year)
+    for y in sorted({year, end_date.year}):
+        recompute_year_taxes(db, user, y)
     db.commit()
     for p in created:
         db.refresh(p)

@@ -17,9 +17,9 @@
     {{ m.input(f, "display_name", "Имя / псевдоним", required=True, extra='maxlength="100"') }}
     {{ m.money_input(f, "salary", "Зарплата, ₽ в месяц (до налога)") }}
     <div class="grid-3">
-      {{ m.input(f, "advance_day", "Дата аванса (число месяца)", type="number", extra='min="1" max="31" step="1"') }}
-      {{ m.input(f, "salary_day", "Дата зарплаты (число месяца)", type="number", extra='min="1" max="31" step="1"') }}
-      {{ m.input(f, "advance_calc_day", "Расчёт аванса (число 1–31)", type="number", extra='min="1" max="31" step="1"', hint="Аванс считается пропорционально рабочим дням с 1-го по это число") }}
+      {{ m.input(f, "advance_day", "Дата аванса (число месяца)", type="number", extra='min="1" max="31" step="1"', hint="Аванс за текущий месяц. Пусто — зарплата одной выплатой") }}
+      {{ m.input(f, "salary_day", "Дата зарплаты (число месяца)", type="number", extra='min="1" max="31" step="1"', hint="Если раньше даты аванса — выплачивается остаток за предыдущий месяц") }}
+      {{ m.input(f, "advance_calc_day", "Расчёт аванса (число 1–31)", type="number", extra='min="1" max="31" step="1"', hint="Аванс — за рабочие дни с 1-го по это число включительно; не позже даты аванса") }}
     </div>
     <div class="form-actions">
       <button type="submit" class="btn btn-primary">Сохранить</button>

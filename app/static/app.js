@@ -118,6 +118,12 @@
       if (empty) empty.textContent = type === "income" ? "— выберите план дохода —" : "— без плана —";
     }
 
+    // код вида дохода при открытии формы: у сохранённой премии галочку не трогаем
+    var lastCode = (function () {
+      var o = selectedKind();
+      return o ? o.getAttribute("data-code") : "";
+    })();
+
     function update() {
       var type = currentType(form);
       applyShowFor(form, type);
@@ -147,6 +153,12 @@
       return kindSelect.options[kindSelect.selectedIndex] || null;
     }
 
+    // код вида дохода при открытии формы: у сохранённой премии галочку не трогаем
+    var lastCode = (function () {
+      var o = selectedKind();
+      return o ? o.getAttribute("data-code") : "";
+    })();
+
     function update() {
       var type = currentType(form);
       applyShowFor(form, type);
@@ -167,8 +179,11 @@
         } else {
           taxable.disabled = false;
           delete taxable.dataset.keepDisabled;
+          // премия облагается НДФЛ — при выборе вида «Премия» отмечаем по умолчанию
+          if (code === "bonus" && lastCode !== "bonus") taxable.checked = true;
         }
       }
+      lastCode = code;
       if (salaryHint) salaryHint.hidden = !isSalary;
 
       if (rate) {
