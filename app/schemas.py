@@ -25,7 +25,6 @@ DayOfMonth = Annotated[int, Field(ge=1, le=31)]
 Name100 = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
 Name200 = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 OptText200 = Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)] | None
-OptText100 = Annotated[str, StringConstraints(strip_whitespace=True, max_length=100)] | None
 OptComment = Annotated[str, StringConstraints(strip_whitespace=True, max_length=2000)] | None
 
 
@@ -129,6 +128,19 @@ class IncomeKindIn(InModel):
     is_active: bool = True
 
 
+class ExpenseCategoryOut(OutModel):
+    id: int
+    name: str
+    sort_order: int
+    is_active: bool
+
+
+class ExpenseCategoryIn(InModel):
+    name: Name100
+    sort_order: int = Field(default=100, ge=0, le=10000)
+    is_active: bool = True
+
+
 class TaxBracketIn(InModel):
     income_from: NonNegMoney
     income_to: PositiveMoney | None = None
@@ -186,8 +198,12 @@ class AccountIn(InModel):
     replenish_period: ReplenishPeriod = ReplenishPeriod.NONE
     replenish_amount: PositiveMoney | None = None
     months_to_goal: int | None = Field(default=None, ge=1, le=1200)  # None = бессрочно
+    # Только для фондов: при заданной целевой сумме сумма пополнения рассчитывается
+    target_amount: PositiveMoney | None = None
 
-    _norm = field_validator("replenish_amount", "months_to_goal", mode="before")(_empty_to_none)
+    _norm = field_validator("replenish_amount", "months_to_goal", "target_amount", mode="before")(
+        _empty_to_none
+    )
 
 
 class AccountOut(OutModel):
@@ -197,6 +213,7 @@ class AccountOut(OutModel):
     replenish_period: ReplenishPeriod
     replenish_amount: Decimal | None
     months_to_goal: int | None
+    target_amount: Decimal | None
     is_closed: bool
     closed_at: datetime | None
     created_at: datetime
@@ -217,12 +234,18 @@ class OperationIn(InModel):
     op_date: date
     name: OptText200 = None
     amount: PositiveMoney
-    category: OptText100 = None
+    category_id: int | None = None  # только для расходов; обязательна со счёта «Текущий»
     comment: OptComment = None
     plan_id: uuid.UUID | None = None
 
     _norm = field_validator(
-        "account_id", "target_account_id", "name", "category", "comment", "plan_id", mode="before"
+        "account_id",
+        "target_account_id",
+        "name",
+        "category_id",
+        "comment",
+        "plan_id",
+        mode="before",
     )(_empty_to_none)
 
 
@@ -236,7 +259,8 @@ class OperationOut(OutModel):
     op_date: date
     name: str | None
     amount: Decimal
-    category: str | None
+    category_id: int | None
+    category_name: str | None
     comment: str | None
     plan_id: uuid.UUID | None
     created_at: datetime

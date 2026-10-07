@@ -179,6 +179,18 @@ class IncomeKind(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
+class ExpenseCategory(Base):
+    """Категория расхода (справочник, редактирует администратор)."""
+
+    __tablename__ = "expense_categories"
+    __table_args__ = (Index("uq_expense_categories_name_lower", text("lower(name)"), unique=True),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
 class TaxBracket(TimestampMixin, Base):
     """Шкала НДФЛ: годовой доход нарастающим итогом от/до → ставка."""
 
@@ -234,6 +246,9 @@ class Account(TimestampMixin, Base):
         CheckConstraint(
             "months_to_goal IS NULL OR months_to_goal > 0", name="ck_accounts_months_pos"
         ),
+        CheckConstraint(
+            "target_amount IS NULL OR target_amount > 0", name="ck_accounts_target_pos"
+        ),
         # Имя открытого счёта уникально в пределах пользователя
         Index(
             "uq_accounts_owner_name_open",
@@ -261,6 +276,8 @@ class Account(TimestampMixin, Base):
     )
     replenish_amount: Mapped[Decimal | None] = mapped_column(MONEY)
     months_to_goal: Mapped[int | None] = mapped_column(Integer)  # NULL = бессрочно
+    # Целевая сумма (только для фондов): по ней рассчитывается сумма регулярного пополнения
+    target_amount: Mapped[Decimal | None] = mapped_column(MONEY)
     is_closed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -342,7 +359,9 @@ class Operation(TimestampMixin, Base):
     )  # Дата операции (вводит пользователь)
     name: Mapped[str | None] = mapped_column(String(200))
     amount: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
-    category: Mapped[str | None] = mapped_column(String(100))
+    category_id: Mapped[int | None] = mapped_column(
+        ForeignKey("expense_categories.id", ondelete="RESTRICT")
+    )  # Категория (только для расходов)
     comment: Mapped[str | None] = mapped_column(Text)
     plan_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("planning.id", ondelete="RESTRICT")
@@ -354,6 +373,7 @@ class Operation(TimestampMixin, Base):
         foreign_keys=[target_account_id], lazy="joined"
     )
     plan: Mapped[Planning | None] = relationship(lazy="joined")
+    category: Mapped[ExpenseCategory | None] = relationship(lazy="joined")
 
 
 class PriorIncome(TimestampMixin, Base):

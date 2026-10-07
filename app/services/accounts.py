@@ -2,7 +2,8 @@
 
 import uuid
 from collections.abc import Sequence
-from datetime import UTC, date, datetime
+from dataclasses import dataclass
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import exists, or_, select
@@ -19,10 +20,12 @@ from app.models import (
     OperationType,
     OperationTypeCode,
     Planning,
+    ReplenishPeriod,
     User,
 )
 from app.services import references
 from app.services.balances import ZERO, account_balance, account_balances
+from app.services.calc import money
 
 UNALLOCATED_DEFAULT_NAME = "Нераспределённый доход"
 
@@ -131,10 +134,50 @@ def _commit(db: Session) -> None:
         raise
 
 
+# Длительность периода регулярности пополнения в месяцах
+PERIOD_MONTHS: dict[ReplenishPeriod, Decimal] = {
+    ReplenishPeriod.WEEKLY: Decimal(12) / Decimal(52),
+    ReplenishPeriod.MONTHLY: Decimal(1),
+    ReplenishPeriod.QUARTERLY: Decimal(3),
+    ReplenishPeriod.YEARLY: Decimal(12),
+}
+
+
+def calc_replenish_amount(target: Decimal, months_to_goal: int, period: ReplenishPeriod) -> Decimal:
+    """Сумма пополнения = целевая сумма / (месяцев до цели / месяцев в периоде).
+
+    15 000 за 9 месяцев ежеквартально → 15 000 / (9 / 3) = 5 000 в квартал.
+    """
+    periods = Decimal(months_to_goal) / PERIOD_MONTHS[period]
+    return money(target / periods)
+
+
+def _account_fields(at: AccountType, data: schemas.AccountIn) -> dict[str, object]:
+    fields = data.model_dump()
+    if data.target_amount is None:
+        return fields
+    if at.code != AccountTypeCode.FUND.value:
+        raise ValidationAppError("Целевая сумма задаётся только для фондов", "target_amount")
+    if data.months_to_goal is None:
+        raise ValidationAppError(
+            "Для расчёта по целевой сумме укажите количество месяцев до цели", "months_to_goal"
+        )
+    if data.replenish_period == ReplenishPeriod.NONE:
+        raise ValidationAppError(
+            "Для расчёта по целевой сумме выберите регулярность пополнения", "replenish_period"
+        )
+    if Decimal(data.months_to_goal) < PERIOD_MONTHS[data.replenish_period]:
+        raise ValidationAppError("Срок до цели меньше одного периода пополнения", "months_to_goal")
+    fields["replenish_amount"] = calc_replenish_amount(
+        data.target_amount, data.months_to_goal, data.replenish_period
+    )
+    return fields
+
+
 def create_account(db: Session, user: User, data: schemas.AccountIn) -> Account:
     at = references.get_account_type(db, data.account_type_id)
     _check_single_per_user(db, user, at)
-    acc = Account(owner_id=user.id, **data.model_dump())
+    acc = Account(owner_id=user.id, **_account_fields(at, data))
     db.add(acc)
     _commit(db)
     return acc
@@ -163,7 +206,9 @@ def update_account(
         at = references.get_account_type(db, data.account_type_id)
         if not acc.is_closed:
             _check_single_per_user(db, user, at, exclude_id=acc.id)
-    for k, v in data.model_dump().items():
+    else:
+        at = acc.account_type
+    for k, v in _account_fields(at, data).items():
         setattr(acc, k, v)
     _commit(db)
     db.refresh(acc)
@@ -224,6 +269,7 @@ def reopen_fund(
         replenish_period=old.replenish_period,
         replenish_amount=old.replenish_amount,
         months_to_goal=old.months_to_goal,
+        target_amount=old.target_amount,
     )
     db.add(new)
     db.flush()
@@ -263,3 +309,104 @@ def replenishment_history(db: Session, user: User, account_id: uuid.UUID) -> Seq
         )
         .order_by(Operation.op_date.desc(), Operation.created_at.desc())
     ).all()
+
+
+# ---------------------------------------------------------------- сводка пополнений
+
+MONTHS_RU = [
+    "Январь",
+    "Февраль",
+    "Март",
+    "Апрель",
+    "Май",
+    "Июнь",
+    "Июль",
+    "Август",
+    "Сентябрь",
+    "Октябрь",
+    "Ноябрь",
+    "Декабрь",
+]
+
+
+@dataclass(frozen=True)
+class ReplenishmentRow:
+    month: date  # первое число месяца
+    label: str  # «Октябрь 2026»
+    amount: Decimal  # пополнено за месяц
+    period_label: str  # «за месяц» / «за IV кв. с начала квартала» / ...
+    period_total: Decimal  # пополнено в периоде регулярности (с его начала по конец месяца)
+    target: Decimal | None  # норма пополнения за период (None — регулярность не задана)
+    percent: int | None
+
+
+def _is_reopen_transfer(op: Operation, account: Account) -> bool:
+    """Перенос остатка при «Открыть заново» — не пополнение."""
+    src = op.account
+    return (
+        op.target_account_id == account.id
+        and src.is_closed
+        and src.account_type_id == account.account_type_id
+        and src.name.lower() == account.name.lower()
+    )
+
+
+def _month_shift(d: date, delta: int) -> date:
+    idx = d.year * 12 + d.month - 1 + delta
+    return date(idx // 12, idx % 12 + 1, 1)
+
+
+def replenishment_summary(
+    db: Session, user: User, account: Account, today: date | None = None, months: int = 6
+) -> list[ReplenishmentRow]:
+    """Пополнения по месяцам за последние `months` месяцев (новые сверху) и выполнение нормы.
+
+    Норма — «Сумма пополнения» за период регулярности: для ежемесячного пополнения
+    период — сам месяц, для ежеквартального — квартал (с его начала по конец месяца
+    строки), для ежегодного — год, для еженедельного — месяц с нормой
+    «сумма × дней в месяце / 7».
+    """
+    today = today or date.today()
+    ops = [
+        o
+        for o in replenishment_history(db, user, account.id)
+        if not _is_reopen_transfer(o, account)
+    ]
+    period = account.replenish_period
+    current = date(today.year, today.month, 1)
+    rows: list[ReplenishmentRow] = []
+    for i in range(months):
+        m = _month_shift(current, -i)
+        m_end = _month_shift(m, 1) - timedelta(days=1)
+        month_sum = sum((o.amount for o in ops if m <= o.op_date <= m_end), ZERO)
+
+        if period == ReplenishPeriod.QUARTERLY:
+            q = (m.month - 1) // 3
+            p_start = date(m.year, q * 3 + 1, 1)
+            p_label = f"за {['I', 'II', 'III', 'IV'][q]} кв. {m.year}"
+        elif period == ReplenishPeriod.YEARLY:
+            p_start = date(m.year, 1, 1)
+            p_label = f"за {m.year} год"
+        else:
+            p_start = m
+            p_label = "за месяц"
+        period_total = sum((o.amount for o in ops if p_start <= o.op_date <= m_end), ZERO)
+
+        target: Decimal | None = None
+        if period != ReplenishPeriod.NONE and account.replenish_amount:
+            target = account.replenish_amount
+            if period == ReplenishPeriod.WEEKLY:
+                target = money(target * Decimal(m_end.day) / Decimal(7))
+        percent = int((period_total * 100 / target).to_integral_value()) if target else None
+        rows.append(
+            ReplenishmentRow(
+                month=m,
+                label=f"{MONTHS_RU[m.month - 1]} {m.year}",
+                amount=month_sum,
+                period_label=p_label,
+                period_total=period_total,
+                target=target,
+                percent=percent,
+            )
+        )
+    return rows

@@ -11,6 +11,7 @@ from app import schemas
 from app.errors import ConflictError, NotFoundError, ValidationAppError
 from app.services import accounts as accounts_svc
 from app.services import operations as ops_svc
+from app.services import references
 from app.services.balances import account_balance
 
 D = Decimal
@@ -116,7 +117,7 @@ def test_income_without_open_unallocated_account(db, user, make):
 # ---------------------------------------------------------------- расход
 
 
-def test_expense_ok_and_fields_stored(db, user, make):
+def test_expense_ok_and_fields_stored(db, user, make, refs):
     current = make.account(user, "current")
     plan = make.expense_plan(user, funding_account_id=current.id)
     op = ops_svc.create_operation(
@@ -126,7 +127,7 @@ def test_expense_ok_and_fields_stored(db, user, make):
             operation_type="expense",
             account_id=current.id,
             name="Продукты",
-            category="Еда",
+            category_id=refs.categories["Еда"],
             comment="  Чек №5; 'quoted' \"double\"  ",
             plan_id=plan.id,
         ),
@@ -134,7 +135,7 @@ def test_expense_ok_and_fields_stored(db, user, make):
     db.expire_all()
     stored = ops_svc.get_operation(db, user, op.id)
     assert stored.name == "Продукты"
-    assert stored.category == "Еда"
+    assert stored.category is not None and stored.category.name == "Еда"
     assert stored.comment == "Чек №5; 'quoted' \"double\""
     assert stored.plan_id == plan.id
     assert stored.amount == D("100.00")
@@ -311,6 +312,7 @@ def test_past_operation_can_be_edited(db, user, make):
             amount=D("4321.99"),
             op_date=date(2025, 11, 15),
             comment="исправлено",
+            category_id=op.category_id,
         ),
     )
     assert updated.op_date == date(2025, 11, 15)
@@ -373,3 +375,79 @@ def test_list_operations_filters(db, user, other_user, make, refs):
     assert len(ls(account_id=cur.id)) == 2  # входящий перевод + расход
     assert len(ls(date_from=date(2026, 1, 11), date_to=date(2026, 1, 31))) == 1
     assert len(ls(account_type_id=refs.account_types["unallocated"])) == 2
+
+
+# ---------------------------------------------------------------- категории расходов
+
+
+def test_expense_from_current_requires_category(db, user, make):
+    acc = make.account(user, "current")
+    with pytest.raises(ValidationAppError) as ei:
+        ops_svc.create_operation(
+            db, user, op_in(operation_type="expense", account_id=acc.id, name="Без категории")
+        )
+    assert ei.value.field == "category_id"
+
+
+def test_expense_from_other_account_category_optional(db, user, make):
+    acc = make.account(user, "monthly")
+    op = ops_svc.create_operation(
+        db, user, op_in(operation_type="expense", account_id=acc.id, name="Без категории")
+    )
+    assert op.category_id is None
+
+
+@pytest.mark.parametrize("op_type", ["income", "transfer"])
+def test_category_only_for_expense(db, user, make, refs, op_type):
+    a, b = make.account(user, "current"), make.account(user, "fund")
+    data = {"operation_type": op_type, "category_id": refs.misc_category}
+    if op_type == "income":
+        data["plan_id"] = make.income_plan(user).id
+    else:
+        data |= {"account_id": a.id, "target_account_id": b.id}
+    with pytest.raises(ValidationAppError) as ei:
+        ops_svc.create_operation(db, user, op_in(**data))
+    assert ei.value.field == "category_id"
+
+
+def test_unknown_category_not_found(db, user, make):
+    acc = make.account(user, "current")
+    with pytest.raises(NotFoundError):
+        ops_svc.create_operation(
+            db,
+            user,
+            op_in(operation_type="expense", account_id=acc.id, name="x", category_id=999999),
+        )
+
+
+def test_inactive_category_kept_on_old_operation_but_not_selectable(db, user, make, refs):
+    acc = make.account(user, "current")
+    food = refs.categories["Еда"]
+    op = make.expense(user, acc, "100", category_id=food)
+    references.update_expense_category(
+        db, food, schemas.ExpenseCategoryIn(name="Еда", is_active=False)
+    )
+    # старую операцию можно сохранить с той же (отключённой) категорией
+    ops_svc.update_operation(
+        db,
+        user,
+        op.id,
+        op_in(
+            operation_type="expense",
+            account_id=acc.id,
+            name="Покупка",
+            amount=D("150"),
+            category_id=food,
+        ),
+    )
+    # а новую — нельзя
+    with pytest.raises(ValidationAppError):
+        make.expense(user, acc, "10", category_id=food)
+
+
+def test_category_in_use_cannot_be_deleted(db, user, make, refs):
+    acc = make.account(user, "current")
+    make.expense(user, acc, "100", category_id=refs.categories["Еда"])
+    with pytest.raises(ConflictError):
+        references.delete_expense_category(db, refs.categories["Еда"])
+    references.delete_expense_category(db, refs.categories["Здоровье"])  # не используется

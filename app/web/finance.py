@@ -93,6 +93,7 @@ def _account_values(acc: Any) -> dict[str, str]:
         "replenish_period": acc.replenish_period.value,
         "replenish_amount": fmt_money_input(acc.replenish_amount),
         "months_to_goal": "" if acc.months_to_goal is None else str(acc.months_to_goal),
+        "target_amount": fmt_money_input(acc.target_amount),
     }
 
 
@@ -105,6 +106,7 @@ def _account_data(values: dict[str, str]) -> schemas.AccountIn:
             "replenish_period": opt(values, "replenish_period"),
             "replenish_amount": norm_money(opt(values, "replenish_amount")),
             "months_to_goal": opt(values, "months_to_goal"),
+            "target_amount": norm_money(opt(values, "target_amount")),
         },
     )
 
@@ -115,7 +117,13 @@ def _render_account_form(
     return render(
         request,
         "account_form.html",
-        {"f": f, "account": account, "account_types": references.account_types(db)},
+        {
+            "f": f,
+            "account": account,
+            "account_types": references.account_types(db),
+            "fund_type_code": AccountTypeCode.FUND.value,
+            "period_months": {p.value: float(m) for p, m in accounts_svc.PERIOD_MONTHS.items()},
+        },
         status_code=status_code,
     )
 
@@ -252,7 +260,8 @@ def _account_group(
     items = accounts_svc.accounts_with_balances(db, user, accs)
     open_items = [a for a in items if not a.is_closed]
     closed_items = [a for a in items if a.is_closed]
-    history = {a.id: accounts_svc.replenishment_history(db, user, a.id) for a in open_items}
+    by_id = {a.id: a for a in accs}
+    history = {a.id: accounts_svc.replenishment_summary(db, user, by_id[a.id]) for a in open_items}
     account_type = references.account_type_by_code(db, code.value)
     return render(
         request,
@@ -305,7 +314,7 @@ def _operation_values(op: Operation) -> dict[str, str]:
         "op_date": op.op_date.isoformat(),
         "name": op.name or "",
         "amount": fmt_money_input(op.amount),
-        "category": op.category or "",
+        "category_id": str(op.category_id) if op.category_id else "",
         "comment": op.comment or "",
         "plan_id": str(op.plan_id) if op.plan_id else "",
     }
@@ -325,11 +334,20 @@ def _operation_data(values: dict[str, str]) -> schemas.OperationIn:
             "op_date": opt(values, "op_date"),
             "name": opt(values, "name"),
             "amount": norm_money(opt(values, "amount")),
-            "category": opt(values, "category"),
+            # категория — только у расхода (у прочих типов поле скрыто)
+            "category_id": opt(values, "category_id") if t == OperationTypeCode.EXPENSE else None,
             "comment": opt(values, "comment"),
             "plan_id": None if t == OperationTypeCode.TRANSFER else opt(values, "plan_id"),
         },
     )
+
+
+def _category_options(db: Session, op: Operation | None) -> list[tuple[str, str]]:
+    """Активные категории + отключённая, если она уже стоит у редактируемой операции."""
+    cats = [c for c in references.expense_categories(db) if c.is_active]
+    if op is not None and op.category is not None and not op.category.is_active:
+        cats.append(op.category)
+    return [(str(c.id), c.name) for c in cats]
 
 
 def _render_operation_form(
@@ -355,6 +373,7 @@ def _render_operation_form(
             "op": op,
             "operation_types": references.operation_types(db),
             "accounts": accounts_svc.list_accounts(db, user, include_closed=False),
+            "categories": _category_options(db, op),
             "unallocated": unallocated,
             "plans": plans,
         },
@@ -367,6 +386,7 @@ def operation_new(
     request: Request,
     type: str | None = None,
     account_id: str | None = None,
+    target_account_id: str | None = None,
     plan_id: uuid.UUID | None = None,
     next: str | None = None,
     db: Session = Depends(get_db),
@@ -376,6 +396,7 @@ def operation_new(
         "operation_type": type if type in ("income", "expense", "transfer") else "expense",
         "op_date": date.today().isoformat(),
         "account_id": account_id or "",
+        "target_account_id": target_account_id or "",
         "next": safe_next(next),
     }
     if plan_id is not None:

@@ -111,4 +111,40 @@
     </div>
   </form>
 </section>
+
+<section class="card" id="categories">
+  <h2>Категории расходов</h2>
+  <p class="muted">Категория указывается только у расходов; для расходов со счёта с типом «Текущий» она обязательна. Отключённая категория остаётся у старых операций, но не предлагается для новых.</p>
+  <div class="table-wrap">
+    <table class="table table-compact">
+      <thead><tr><th>Наименование</th><th>Статус</th><th class="r">Порядок</th><th class="actions-col"></th></tr></thead>
+      <tbody>
+      {% for c in categories %}
+        <tr class="{{ 'row-selected' if cat_form.edit_id == c.id else '' }}{{ ' row-closed' if not c.is_active else '' }}">
+          <td>{{ c.name }}</td>
+          <td>{{ "активна" if c.is_active else "отключена" }}</td>
+          <td class="r">{{ c.sort_order }}</td>
+          <td class="actions-col">
+            <a class="btn btn-sm btn-ghost" href="/admin/references?cat={{ c.id }}#categories">Изменить</a>
+            {{ m.post_button("/admin/expense-categories/" ~ c.id ~ "/toggle", "Отключить" if c.is_active else "Включить") }}
+            {{ m.post_button("/admin/expense-categories/" ~ c.id ~ "/delete", "Удалить", confirm="Удалить категорию «" ~ c.name ~ "»?", cls="btn-ghost btn-danger") }}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <h3>{{ "Изменить категорию" if cat_form.edit_id else "Добавить категорию" }}</h3>
+  {{ m.form_error(cat_form) }}
+  <form method="post" action="{{ cat_form.action }}" class="inline-fields" novalidate>
+    {{ m.csrf() }}
+    {{ m.input(cat_form, "name", "Наименование", required=True, extra='maxlength="100"') }}
+    {{ m.input(cat_form, "sort_order", "Порядок", type="number", extra='min="0" max="10000" step="1"') }}
+    {{ m.checkbox(cat_form, "is_active", "Активна") }}
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">{{ "Сохранить" if cat_form.edit_id else "Добавить" }}</button>
+      {% if cat_form.edit_id %}<a class="btn btn-ghost" href="/admin/references#categories">Отмена</a>{% endif %}
+    </div>
+  </form>
+</section>
 {% endblock %}

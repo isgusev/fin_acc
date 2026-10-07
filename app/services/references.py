@@ -13,8 +13,10 @@ from app.models import (
     Account,
     AccountType,
     AppSetting,
+    ExpenseCategory,
     Holiday,
     IncomeKind,
+    Operation,
     OperationType,
     Planning,
     TaxBracket,
@@ -283,4 +285,48 @@ def update_holiday(db: Session, holiday_id: int, data: schemas.HolidayIn) -> Hol
 
 def delete_holiday(db: Session, holiday_id: int) -> None:
     db.delete(get_holiday(db, holiday_id))
+    db.commit()
+
+
+# ---------------------------------------------------------------- категории расходов
+
+
+def expense_categories(db: Session, only_active: bool = False) -> Sequence[ExpenseCategory]:
+    q = select(ExpenseCategory).order_by(ExpenseCategory.sort_order, ExpenseCategory.name)
+    if only_active:
+        q = q.where(ExpenseCategory.is_active)
+    return db.scalars(q).all()
+
+
+def get_expense_category(db: Session, category_id: int) -> ExpenseCategory:
+    c = db.get(ExpenseCategory, category_id)
+    if c is None:
+        raise NotFoundError("Категория не найдена", "category_id")
+    return c
+
+
+def create_expense_category(db: Session, data: schemas.ExpenseCategoryIn) -> ExpenseCategory:
+    c = ExpenseCategory(**data.model_dump())
+    db.add(c)
+    _commit_unique(db)
+    return c
+
+
+def update_expense_category(
+    db: Session, category_id: int, data: schemas.ExpenseCategoryIn
+) -> ExpenseCategory:
+    c = get_expense_category(db, category_id)
+    for k, v in data.model_dump().items():
+        setattr(c, k, v)
+    _commit_unique(db)
+    return c
+
+
+def delete_expense_category(db: Session, category_id: int) -> None:
+    c = get_expense_category(db, category_id)
+    if db.scalar(select(exists().where(Operation.category_id == c.id))):
+        raise ConflictError(
+            "Категория используется в операциях — удаление невозможно (её можно отключить)"
+        )
+    db.delete(c)
     db.commit()

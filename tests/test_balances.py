@@ -79,6 +79,7 @@ def test_editing_past_operation_changes_balance(db, user, make):
             op_date=date(2026, 1, 7),
             name="Покупка",
             amount=D("500"),
+            category_id=exp.category_id,
         ),
     )
     assert account_balance(db, user.id, current.id) == D("8500.00")

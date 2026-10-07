@@ -36,6 +36,10 @@ def get_references(
         "income_kinds": [
             schemas.IncomeKindOut.model_validate(x) for x in references.income_kinds(db, True)
         ],
+        "expense_categories": [
+            schemas.ExpenseCategoryOut.model_validate(x)
+            for x in references.expense_categories(db, True)
+        ],
     }
 
 

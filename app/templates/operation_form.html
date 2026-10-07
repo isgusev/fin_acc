@@ -34,11 +34,11 @@
     </div>
 
     {% set account_opts = [] %}
-    {% for a in accounts %}{% set _ = account_opts.append((a.id|string, a.name ~ " · " ~ a.account_type.name)) %}{% endfor %}
+    {% for a in accounts %}{% set _ = account_opts.append((a.id|string, a.name ~ " · " ~ a.account_type.name, 'data-type-code="' ~ (a.account_type.code or '') ~ '"')) %}{% endfor %}
     {{ m.select(f, "account_id", "Счёт", account_opts, required=True, empty="— выберите счёт —",
-                group='data-show-for="expense transfer"', extra='data-label-transfer="Счёт-источник" data-label-default="Счёт"') }}
+                group='data-show-for="expense transfer"', extra='data-label-transfer="Счёт-источник" data-label-default="Счёт" data-pair="target_account_id"') }}
     {{ m.select(f, "target_account_id", "Счёт-назначение", account_opts, required=True, empty="— выберите счёт —",
-                group='data-show-for="transfer"') }}
+                group='data-show-for="transfer"', extra='data-pair="account_id"') }}
 
     <div class="grid-2">
       {{ m.input(f, "op_date", "Дата", type="date", required=True) }}
@@ -51,7 +51,17 @@
       <div class="hint" data-show-for="expense">Для расхода наименование обязательно</div>
       {{ m.field_error(f, "name") }}
     </div>
-    {{ m.input(f, "category", "Категория", extra='maxlength="100"') }}
+    <div class="field{% if f.errors.get('category_id') %} has-error{% endif %}" data-show-for="expense">
+      <label for="f-category_id">Категория <span class="req" data-category-req hidden>*</span></label>
+      <select id="f-category_id" name="category_id">
+        <option value="">— без категории —</option>
+        {% for value, label in categories %}
+          <option value="{{ value }}" {% if f.v('category_id') == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <div class="hint">Для расходов со счёта с типом «Текущий» категория обязательна</div>
+      {{ m.field_error(f, "category_id") }}
+    </div>
 
     {% set plan_opts = [] %}
     {% for p in plans %}{% set _ = plan_opts.append((p.id|string, p|plan_label, 'data-type="' ~ p.operation_type.code ~ '"')) %}{% endfor %}

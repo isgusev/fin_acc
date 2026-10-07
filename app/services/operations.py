@@ -10,6 +10,7 @@ from app import schemas
 from app.errors import ConflictError, NotFoundError, ValidationAppError
 from app.models import (
     Account,
+    AccountTypeCode,
     Operation,
     OperationType,
     OperationTypeCode,
@@ -41,7 +42,30 @@ def _open_account(db: Session, user: User, account_id: uuid.UUID, field: str) ->
     return acc
 
 
-def _resolve(db: Session, user: User, data: schemas.OperationIn) -> dict[str, object]:
+def _resolve_category(
+    db: Session, data: schemas.OperationIn, account: Account, current_category_id: int | None
+) -> int | None:
+    """Категория — только у расходов; для расходов со счёта «Текущий» обязательна."""
+    if data.operation_type != OperationTypeCode.EXPENSE:
+        if data.category_id is not None:
+            raise ValidationAppError("Категория указывается только для расходов", "category_id")
+        return None
+    if data.category_id is None:
+        if account.account_type.code == AccountTypeCode.CURRENT.value:
+            raise ValidationAppError(
+                "Для расхода со счёта с типом «Текущий» укажите категорию", "category_id"
+            )
+        return None
+    category = references.get_expense_category(db, data.category_id)
+    # отключённую категорию можно оставить у старой операции, но не выбрать заново
+    if not category.is_active and category.id != current_category_id:
+        raise ValidationAppError("Эта категория отключена администратором", "category_id")
+    return category.id
+
+
+def _resolve(
+    db: Session, user: User, data: schemas.OperationIn, current_category_id: int | None = None
+) -> dict[str, object]:
     """Проверяет данные операции по правилам её типа и возвращает поля для записи в БД."""
     ot = references.operation_type_by_code(db, data.operation_type)
     target_id: uuid.UUID | None = None
@@ -97,6 +121,7 @@ def _resolve(db: Session, user: User, data: schemas.OperationIn) -> dict[str, ob
         if data.plan_id is not None:
             raise ValidationAppError("Перевод нельзя связать с планом", "plan_id")
 
+    category_id = _resolve_category(db, data, account, current_category_id)
     return {
         "operation_type_id": ot.id,
         "account_id": account.id,
@@ -104,7 +129,7 @@ def _resolve(db: Session, user: User, data: schemas.OperationIn) -> dict[str, ob
         "op_date": data.op_date,
         "name": data.name,
         "amount": data.amount,
-        "category": data.category,
+        "category_id": category_id,
         "comment": data.comment,
         "plan_id": plan_id,
     }
@@ -131,7 +156,7 @@ def update_operation(
 ) -> Operation:
     op = get_operation(db, user, op_id)
     _ensure_not_touching_closed(op)
-    for k, v in _resolve(db, user, data).items():
+    for k, v in _resolve(db, user, data, op.category_id).items():
         setattr(op, k, v)
     db.commit()
     db.refresh(op)
@@ -191,7 +216,8 @@ def to_out(op: Operation) -> schemas.OperationOut:
         op_date=op.op_date,
         name=op.name,
         amount=op.amount,
-        category=op.category,
+        category_id=op.category_id,
+        category_name=op.category.name if op.category else None,
         comment=op.comment,
         plan_id=op.plan_id,
         created_at=op.created_at,
