@@ -322,3 +322,4 @@ a.nav-user.active { font-weight: 600; }
 .row-error td { background: color-mix(in srgb, var(--danger) 8%, transparent); }
 textarea.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
 .plan-change { margin-top: 2px; font-style: italic; }
+.total-row td { border-top: 2px solid var(--border); }

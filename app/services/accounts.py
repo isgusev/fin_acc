@@ -518,3 +518,80 @@ def replenishment_summary(
             )
         rows.append(ReplenishmentRow(start, end, label, amount, target, percent, change))
     return rows
+
+
+# ---------------------------------------------------------------- сводка месяца по счетам
+
+
+@dataclass(frozen=True)
+class MonthAccountRow:
+    account_id: uuid.UUID
+    name: str
+    balance: Decimal
+    replenished: Decimal  # пополнено в текущем месяце
+    expected: Decimal | None  # ожидаемое пополнение месяца (None — план не задан)
+    percent: int | None
+
+
+@dataclass(frozen=True)
+class MonthOverview:
+    month_label: str  # «Октябрь 2026»
+    rows: list[MonthAccountRow]
+    total_balance: Decimal
+    total_replenished: Decimal  # только по счетам с планом
+    total_expected: Decimal
+    total_percent: int | None
+
+
+def _percent(amount: Decimal, target: Decimal | None) -> int | None:
+    return int((amount * 100 / target).to_integral_value()) if target else None
+
+
+def month_overview(
+    db: Session,
+    user: User,
+    accounts: Sequence[schemas.AccountOut],
+    today: date | None = None,
+) -> MonthOverview:
+    """Сводка текущего месяца по открытым счетам: баланс и выполнение плана пополнения.
+
+    Ожидаемое пополнение месяца — по плану, действующему в этом месяце, приведённому
+    к месяцу (ежеквартальный план — треть, ежегодный — двенадцатая часть, еженедельный —
+    сумма × дней месяца / 7). Итоговый процент считается только по счетам с планом.
+    """
+    today = today or date.today()
+    start = date(today.year, today.month, 1)
+    end = _month_shift(start, 1) - timedelta(days=1)
+    rows: list[MonthAccountRow] = []
+    total_repl = total_exp = ZERO
+    for a in accounts:
+        acc = get_account(db, user, a.id)
+        replenished = sum(
+            (
+                o.amount
+                for o in replenishment_history(db, user, acc.id)
+                if start <= o.op_date <= end and not _is_reopen_transfer(o, acc)
+            ),
+            ZERO,
+        )
+        plans = [p for p in replenish_plans(db, acc.id) if p.effective_from <= end]
+        if plans:
+            expected = period_norm(plans[-1].period, plans[-1].amount, start, end)
+        else:
+            expected = period_norm(acc.replenish_period, acc.replenish_amount, start, end)
+        if expected:
+            total_repl += replenished
+            total_exp += expected
+        rows.append(
+            MonthAccountRow(
+                a.id, a.name, a.balance, replenished, expected, _percent(replenished, expected)
+            )
+        )
+    return MonthOverview(
+        month_label=f"{MONTHS_RU[start.month - 1]} {start.year}",
+        rows=rows,
+        total_balance=sum((a.balance for a in accounts), ZERO),
+        total_replenished=total_repl,
+        total_expected=total_exp,
+        total_percent=_percent(total_repl, total_exp),
+    )

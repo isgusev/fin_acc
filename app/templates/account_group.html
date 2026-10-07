@@ -10,19 +10,52 @@
   </div>
 </div>
 
-<section class="card stat-card">
-  <div class="stat">
-    <div class="stat-label">Общий баланс</div>
-    <div class="stat-value">{{ m.amount(total) }} ₽</div>
+{% set ov = overview %}
+<section class="card">
+  <h2>Сводка · {{ ov.month_label }}</h2>
+  {% if ov.rows %}
+  <div class="table-wrap">
+    <table class="table table-compact replenish-table">
+      <thead><tr><th>Счёт</th><th class="r">Баланс, ₽</th><th>Пополнение в этом месяце</th></tr></thead>
+      <tbody>
+      {% for r in ov.rows %}
+        <tr>
+          <td><a href="#acc-{{ r.account_id }}">{{ r.name }}</a></td>
+          <td class="r nowrap">{{ m.amount(r.balance) }}</td>
+          <td>
+            {% if r.expected is not none %}
+              {{ m.progress(r.percent) }}
+              <div class="muted small">{{ r.replenished|money }} из {{ r.expected|money }} ₽</div>
+            {% else %}
+              <span class="muted small">{{ r.replenished|money }} ₽ · план пополнения не задан</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr class="total-row">
+          <td><strong>Итого</strong></td>
+          <td class="r nowrap"><strong>{{ m.amount(ov.total_balance) }}</strong></td>
+          <td>
+            {% if ov.total_percent is not none %}
+              {{ m.progress(ov.total_percent) }}
+              <div class="muted small">{{ ov.total_replenished|money }} из {{ ov.total_expected|money }} ₽</div>
+            {% else %}
+              <span class="muted small">Ни у одного счёта не задан план пополнения</span>
+            {% endif %}
+          </td>
+        </tr>
+      </tfoot>
+    </table>
   </div>
-  <div class="stat">
-    <div class="stat-label">Открытых счетов</div>
-    <div class="stat-value">{{ open_items|length }}</div>
-  </div>
+  {% else %}
+    <p class="empty">Открытых счетов нет.</p>
+  {% endif %}
 </section>
 
 {% for a in open_items %}
-<section class="card account-card">
+<section class="card account-card" id="acc-{{ a.id }}">
   <div class="card-head">
     <div>
       <h2>{{ a.name }}</h2>
@@ -52,10 +85,7 @@
           <td class="r">{{ m.amount(row.amount) }}</td>
           <td>
             {% if row.target is not none %}
-            <div class="progress-cell">
-              <progress class="replenish-progress{% if row.percent >= 100 %} is-done{% endif %}" max="100" value="{{ [row.percent, 100]|min }}">{{ row.percent }}%</progress>
-              <span class="progress-pct">{{ row.percent }}%</span>
-            </div>
+            {{ m.progress(row.percent) }}
             <div class="muted small">{{ row.amount|money }} из {{ row.target|money }} ₽</div>
             {% else %}
               <span class="muted small">Регулярность или сумма пополнения не заданы</span>

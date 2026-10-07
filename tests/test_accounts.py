@@ -638,3 +638,78 @@ def test_plan_effective_from_web_form(db, user_client, user, refs):
     assert r.status_code == 303
     plans = accounts_svc.replenish_plans(db, acc.id)
     assert plans[-1].effective_from == date(2026, 10, 1)
+
+
+# ---------------------------------------------------------------- сводка месяца
+
+
+def _overview(db, user, today):
+    accs = accounts_svc.list_accounts(db, user, type_code="fund", include_closed=False)
+    items = accounts_svc.accounts_with_balances(db, user, accs)
+    return accounts_svc.month_overview(db, user, items, today)
+
+
+def test_month_overview_rows_and_totals(db, user, refs, make):
+    src = make.account(user, "current")
+    monthly_fund = accounts_svc.create_account(
+        db,
+        user,
+        fund_in(refs, name="Ремонт", replenish_period="monthly", replenish_amount=D("10000")),
+    )
+    quarterly = accounts_svc.create_account(
+        db,
+        user,
+        fund_in(refs, name="Отпуск", replenish_period="quarterly", replenish_amount=D("6000")),
+    )
+    no_plan = accounts_svc.create_account(db, user, fund_in(refs, name="Подушка"))
+    make.transfer(user, src, monthly_fund, "5000", on=date(2026, 10, 3))
+    make.transfer(user, src, monthly_fund, "7000", on=date(2026, 9, 3))  # прошлый месяц
+    make.transfer(user, src, quarterly, "2000", on=date(2026, 10, 10))
+    make.transfer(user, src, no_plan, "3000", on=date(2026, 10, 11))
+
+    ov = _overview(db, user, date(2026, 10, 20))
+    assert ov.month_label == "Октябрь 2026"
+    rows = {r.name: r for r in ov.rows}
+    assert (rows["Ремонт"].replenished, rows["Ремонт"].expected, rows["Ремонт"].percent) == (
+        D("5000.00"),
+        D("10000.00"),
+        50,
+    )
+    # квартальный план приводится к месяцу: 6000 / 3 = 2000
+    assert (rows["Отпуск"].expected, rows["Отпуск"].percent) == (D("2000.00"), 100)
+    assert (rows["Подушка"].replenished, rows["Подушка"].expected) == (D("3000.00"), None)
+    assert rows["Ремонт"].balance == D("12000.00")
+    # итог — только по счетам с планом: (5000 + 2000) / (10000 + 2000)
+    assert (ov.total_replenished, ov.total_expected, ov.total_percent) == (
+        D("7000.00"),
+        D("12000.00"),
+        58,
+    )
+    assert ov.total_balance == D("17000.00")
+
+
+def test_month_overview_uses_plan_of_current_month(db, user, refs):
+    acc = accounts_svc.create_account(
+        db, user, fund_in(refs, replenish_period="monthly", replenish_amount=D("1000"))
+    )
+    accounts_svc.update_account(
+        db,
+        user,
+        acc.id,
+        fund_in(
+            refs,
+            replenish_period="monthly",
+            replenish_amount=D("4000"),
+            plan_effective_from=date(2026, 11, 1),
+        ),
+    )
+    assert _overview(db, user, date(2026, 10, 5)).rows[0].expected == D("1000.00")
+    assert _overview(db, user, date(2026, 11, 5)).rows[0].expected == D("4000.00")
+
+
+def test_group_page_shows_overview(user_client, db, user, refs, make):
+    accounts_svc.create_account(
+        db, user, fund_in(refs, replenish_period="monthly", replenish_amount=D("1000"))
+    )
+    html = user_client.get("/funds").text
+    assert "Сводка ·" in html and "Пополнение в этом месяце" in html and "Итого" in html

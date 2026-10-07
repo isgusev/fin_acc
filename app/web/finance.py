@@ -282,6 +282,7 @@ def _account_group(
             "open_items": open_items,
             "closed_items": closed_items,
             "history": history,
+            "overview": accounts_svc.month_overview(db, user, open_items),
             "total": sum((a.balance for a in open_items), Decimal("0.00")),
         },
     )
