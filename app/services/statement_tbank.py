@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
 
+MAX_DESCRIPTION = 400  # символов описания в одной записи (у Т-Банка — заметно меньше)
+
 _DT = r"(\d{2}\.\d{2}\.\d{4})\s+(\d{2}:\d{2})"
 # неразрывные пробелы (NBSP, NNBSP) встречаются в суммах при копировании из PDF
 _SPACES = " \u00a0\u202f"
@@ -27,7 +29,8 @@ _RECORD = re.compile(
     + _AMOUNT
     + r"\s+"
     + _AMOUNT
-    + r"\s+(.+?)\s+(\d{4}|[—–\-]{1,3})"
+    # длина описания ограничена: без этого на «битом» тексте поиск растёт квадратично
+    + rf"\s+(.{{1,{MAX_DESCRIPTION}}}?)\s+(\d{{4}}|[—–\-]{{1,3}})"
     + r"(?=\s+\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2}\s+\d{2}\.\d{2}\.\d{4}|\s*$)"
 )
 # Начало записи — две пары «дата время» подряд; по ним считаем, сколько записей в тексте

@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api import api_router
+from app.bodylimit import BodySizeLimitMiddleware
 from app.config import get_settings
 from app.db import SessionLocal
 from app.deps import CSRF_COOKIE, PasswordChangeRequired
@@ -64,6 +65,9 @@ def create_app() -> FastAPI:
         h.setdefault("X-Content-Type-Options", "nosniff")
         h.setdefault("X-Frame-Options", "DENY")
         h.setdefault("Referrer-Policy", "same-origin")
+        h.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
+        h.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+        h.setdefault("Cross-Origin-Resource-Policy", "same-origin")
         h.setdefault(
             "Content-Security-Policy",
             "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; "
@@ -133,6 +137,7 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_body_bytes)
     app.include_router(api_router)
     app.include_router(web_router)
     return app

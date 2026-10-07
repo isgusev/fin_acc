@@ -8,9 +8,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Сначала зависимости — слой кешируется, пока не меняется pyproject.toml
-COPY pyproject.toml ./
-RUN mkdir app && touch app/__init__.py && pip install . && rm -rf app
+# Сначала зависимости точных версий из requirements.lock — слой кешируется
+COPY pyproject.toml requirements.lock ./
+RUN pip install --upgrade pip \
+    && pip install -r requirements.lock \
+    && mkdir app && touch app/__init__.py && pip install --no-deps . && rm -rf app
 
 COPY app ./app
 COPY migrations ./migrations

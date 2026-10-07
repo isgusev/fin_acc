@@ -270,7 +270,7 @@ class ImportRowIn(InModel):
 
 
 class ImportTextIn(InModel):
-    text: Annotated[str, StringConstraints(max_length=500_000)]
+    text: Annotated[str, StringConstraints(max_length=200_000)]  # ~1500 операций
 
 
 class ImportSaveIn(InModel):
