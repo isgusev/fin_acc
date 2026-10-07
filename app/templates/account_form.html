@@ -25,6 +25,10 @@
       {{ m.money_input(f, "replenish_amount", "Сумма пополнения, ₽", extra="data-replenish-input") }}
     </div>
     {{ m.input(f, "months_to_goal", "Количество месяцев до цели", type="number", extra='min="1" max="1200" step="1"', placeholder="бессрочно", hint="Оставьте пустым — «бессрочно»") }}
+    {% if account %}
+    {{ m.input(f, "plan_effective_from", "Изменение плана пополнения действует с", type="month",
+               hint="Учитывается, только если меняете регулярность или сумму пополнения. Периоды до этого месяца в истории пополнений считаются по прежнему плану") }}
+    {% endif %}
     <div class="form-actions">
       <button type="submit" class="btn btn-primary">Сохранить</button>
       <a class="btn btn-ghost" href="{{ f.v('next') or '/' }}">Отмена</a>

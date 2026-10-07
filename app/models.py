@@ -288,6 +288,40 @@ class Account(TimestampMixin, Base):
     account_type: Mapped[AccountType] = relationship(lazy="joined")
 
 
+# Дата начала действия первоначального плана счёта — «с самого начала»
+PLAN_FROM_START = date(2000, 1, 1)
+
+
+class AccountReplenishPlan(TimestampMixin, Base):
+    """План пополнения счёта, действующий с указанной даты (история изменений).
+
+    Норма периода в истории пополнений берётся из плана, действовавшего в этот период,
+    поэтому изменение суммы или регулярности не пересчитывает прошлое.
+    """
+
+    __tablename__ = "account_replenish_plans"
+    __table_args__ = (
+        CheckConstraint("amount IS NULL OR amount > 0", name="ck_replenish_plan_amount_pos"),
+        Index("uq_replenish_plan_account_from", "account_id", "effective_from", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    effective_from: Mapped[date] = mapped_column(Date, nullable=False)
+    period: Mapped[ReplenishPeriod] = mapped_column(
+        Enum(
+            ReplenishPeriod,
+            name="replenish_period",
+            values_callable=lambda e: [m.value for m in e],
+            create_type=False,
+        ),
+        nullable=False,
+    )
+    amount: Mapped[Decimal | None] = mapped_column(MONEY)
+
+
 class Planning(TimestampMixin, Base):
     __tablename__ = "planning"
     __table_args__ = (

@@ -73,3 +73,12 @@
   <button type="submit" class="btn btn-sm {{ cls }}">{{ label }}</button>
 </form>
 {%- endmacro %}
+
+
+{# Прогресс-бар выполнения плана пополнения #}
+{% macro progress(percent) -%}
+<div class="progress-cell">
+  <progress class="replenish-progress{% if percent >= 100 %} is-done{% endif %}" max="100" value="{{ [percent, 100]|min }}">{{ percent }}%</progress>
+  <span class="progress-pct">{{ percent }}%</span>
+</div>
+{%- endmacro %}

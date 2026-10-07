@@ -498,3 +498,218 @@ def test_replenishment_summary_without_plan_and_reopen_excluded(db, user, refs, 
     # перенос остатка при «Открыть заново» пополнением не считается
     _, new, _ = accounts_svc.reopen_fund(db, user, fund.id)
     assert accounts_svc.replenishment_summary(db, user, new)[0].amount == D("0.00")
+
+
+# ---------------------------------------------------------------- история плана пополнения
+
+
+def monthly_in(refs, **kw):
+    data = {
+        "name": "Продукты",
+        "account_type_id": refs.account_types["monthly"],
+        "replenish_period": "monthly",
+        "replenish_amount": D("20000"),
+    } | kw
+    return schemas.AccountIn(**data)
+
+
+def test_plan_change_does_not_rewrite_past_periods(db, user, refs, make):
+    """Пример из ТЗ: до 01.10.2026 — 20 000 из 20 000 (100 %), с октября план 25 000."""
+    src = make.account(user, "current")
+    acc = accounts_svc.create_account(db, user, monthly_in(refs))
+    make.transfer(user, src, acc, "20000", on=date(2026, 9, 3))
+    make.transfer(user, src, acc, "20000", on=date(2026, 10, 3))
+    accounts_svc.update_account(
+        db,
+        user,
+        acc.id,
+        monthly_in(refs, replenish_amount=D("25000"), plan_effective_from=date(2026, 10, 15)),
+    )
+    rows = {
+        r.label: r for r in accounts_svc.replenishment_summary(db, user, acc, date(2026, 10, 20))
+    }
+    sep, oct_ = rows["Сентябрь 2026"], rows["Октябрь 2026"]
+    assert (sep.target, sep.percent, sep.plan_change) == (D("20000.00"), 100, None)
+    assert (oct_.target, oct_.percent) == (D("25000.00"), 80)
+    ch = oct_.plan_change
+    assert ch is not None and ch.effective_from == date(2026, 10, 1)  # учитывается месяц
+    assert (ch.old_amount, ch.new_amount) == (D("20000.00"), D("25000.00"))
+
+
+def test_plan_effective_next_month_keeps_current(db, user, refs):
+    acc = accounts_svc.create_account(db, user, monthly_in(refs))
+    accounts_svc.update_account(
+        db,
+        user,
+        acc.id,
+        monthly_in(refs, replenish_amount=D("30000"), plan_effective_from=date(2026, 11, 1)),
+    )
+    rows = accounts_svc.replenishment_summary(db, user, acc, date(2026, 10, 20))
+    assert rows[0].target == D("20000.00")  # октябрь — ещё старый план
+    assert accounts_svc.replenishment_summary(db, user, acc, date(2026, 11, 5))[0].target == D(
+        "30000.00"
+    )
+
+
+def test_editing_without_plan_change_adds_no_plan(db, user, refs):
+    acc = accounts_svc.create_account(db, user, monthly_in(refs))
+    accounts_svc.update_account(
+        db, user, acc.id, monthly_in(refs, name="Еда", plan_effective_from=date(2026, 10, 1))
+    )
+    plans = accounts_svc.replenish_plans(db, acc.id)
+    assert [(p.effective_from, p.amount) for p in plans] == [(date(2000, 1, 1), D("20000.00"))]
+
+
+def test_plan_change_replaces_later_plans(db, user, refs):
+    acc = accounts_svc.create_account(db, user, monthly_in(refs))
+    for amount, eff in (("25000", date(2026, 10, 1)), ("30000", date(2026, 12, 1))):
+        accounts_svc.update_account(
+            db,
+            user,
+            acc.id,
+            monthly_in(refs, replenish_amount=D(amount), plan_effective_from=eff),
+        )
+    # более ранняя дата заменяет планы, начинавшиеся с неё и позже
+    accounts_svc.update_account(
+        db,
+        user,
+        acc.id,
+        monthly_in(refs, replenish_amount=D("22000"), plan_effective_from=date(2026, 9, 10)),
+    )
+    plans = accounts_svc.replenish_plans(db, acc.id)
+    assert [(p.effective_from, p.amount) for p in plans] == [
+        (date(2000, 1, 1), D("20000.00")),
+        (date(2026, 9, 1), D("22000.00")),
+    ]
+
+
+def test_regularity_change_scales_old_plan_to_new_rows(db, user, refs):
+    """Был ежемесячный план 20 000, с октября — ежеквартальный 50 000.
+    Строка III кв. считается по старому плану: 20 000 × 3 = 60 000."""
+    acc = accounts_svc.create_account(db, user, monthly_in(refs))
+    accounts_svc.update_account(
+        db,
+        user,
+        acc.id,
+        monthly_in(
+            refs,
+            replenish_period="quarterly",
+            replenish_amount=D("50000"),
+            plan_effective_from=date(2026, 10, 1),
+        ),
+    )
+    rows = {
+        r.label: r for r in accounts_svc.replenishment_summary(db, user, acc, date(2026, 10, 20))
+    }
+    assert rows["III кв. 2026"].target == D("60000.00")
+    assert rows["IV кв. 2026"].target == D("50000.00")
+    assert rows["IV кв. 2026"].plan_change is not None
+
+
+def test_new_accounts_and_reopen_get_initial_plan(db, user, refs):
+    acc = accounts_svc.create_account(db, user, monthly_in(refs))
+    assert len(accounts_svc.replenish_plans(db, acc.id)) == 1
+    unalloc = accounts_svc.get_unallocated_account(db, user)
+    assert len(accounts_svc.replenish_plans(db, unalloc.id)) == 1
+    fund = accounts_svc.create_account(
+        db, user, fund_in(refs, replenish_period="monthly", replenish_amount=D("1000"))
+    )
+    _, new, _ = accounts_svc.reopen_fund(db, user, fund.id)
+    (plan,) = accounts_svc.replenish_plans(db, new.id)
+    assert (plan.period, plan.amount) == ("monthly", D("1000.00"))
+
+
+def test_plan_effective_from_web_form(db, user_client, user, refs):
+    acc = accounts_svc.create_account(db, user, monthly_in(refs))
+    page = user_client.get(f"/accounts/{acc.id}/edit")
+    assert 'type="month"' in page.text and "действует с" in page.text
+    assert 'name="plan_effective_from"' not in user_client.get("/accounts/new").text
+    r = user_client.post(
+        f"/accounts/{acc.id}/edit",
+        data={
+            "name": "Продукты",
+            "account_type_id": str(refs.account_types["monthly"]),
+            "replenish_period": "monthly",
+            "replenish_amount": "25 000",
+            "plan_effective_from": "2026-10",
+        },
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    plans = accounts_svc.replenish_plans(db, acc.id)
+    assert plans[-1].effective_from == date(2026, 10, 1)
+
+
+# ---------------------------------------------------------------- сводка месяца
+
+
+def _overview(db, user, today):
+    accs = accounts_svc.list_accounts(db, user, type_code="fund", include_closed=False)
+    items = accounts_svc.accounts_with_balances(db, user, accs)
+    return accounts_svc.month_overview(db, user, items, today)
+
+
+def test_month_overview_rows_and_totals(db, user, refs, make):
+    src = make.account(user, "current")
+    monthly_fund = accounts_svc.create_account(
+        db,
+        user,
+        fund_in(refs, name="Ремонт", replenish_period="monthly", replenish_amount=D("10000")),
+    )
+    quarterly = accounts_svc.create_account(
+        db,
+        user,
+        fund_in(refs, name="Отпуск", replenish_period="quarterly", replenish_amount=D("6000")),
+    )
+    no_plan = accounts_svc.create_account(db, user, fund_in(refs, name="Подушка"))
+    make.transfer(user, src, monthly_fund, "5000", on=date(2026, 10, 3))
+    make.transfer(user, src, monthly_fund, "7000", on=date(2026, 9, 3))  # прошлый месяц
+    make.transfer(user, src, quarterly, "2000", on=date(2026, 10, 10))
+    make.transfer(user, src, no_plan, "3000", on=date(2026, 10, 11))
+
+    ov = _overview(db, user, date(2026, 10, 20))
+    assert ov.month_label == "Октябрь 2026"
+    rows = {r.name: r for r in ov.rows}
+    assert (rows["Ремонт"].replenished, rows["Ремонт"].expected, rows["Ремонт"].percent) == (
+        D("5000.00"),
+        D("10000.00"),
+        50,
+    )
+    # квартальный план приводится к месяцу: 6000 / 3 = 2000
+    assert (rows["Отпуск"].expected, rows["Отпуск"].percent) == (D("2000.00"), 100)
+    assert (rows["Подушка"].replenished, rows["Подушка"].expected) == (D("3000.00"), None)
+    assert rows["Ремонт"].balance == D("12000.00")
+    # итог — только по счетам с планом: (5000 + 2000) / (10000 + 2000)
+    assert (ov.total_replenished, ov.total_expected, ov.total_percent) == (
+        D("7000.00"),
+        D("12000.00"),
+        58,
+    )
+    assert ov.total_balance == D("17000.00")
+
+
+def test_month_overview_uses_plan_of_current_month(db, user, refs):
+    acc = accounts_svc.create_account(
+        db, user, fund_in(refs, replenish_period="monthly", replenish_amount=D("1000"))
+    )
+    accounts_svc.update_account(
+        db,
+        user,
+        acc.id,
+        fund_in(
+            refs,
+            replenish_period="monthly",
+            replenish_amount=D("4000"),
+            plan_effective_from=date(2026, 11, 1),
+        ),
+    )
+    assert _overview(db, user, date(2026, 10, 5)).rows[0].expected == D("1000.00")
+    assert _overview(db, user, date(2026, 11, 5)).rows[0].expected == D("4000.00")
+
+
+def test_group_page_shows_overview(user_client, db, user, refs, make):
+    accounts_svc.create_account(
+        db, user, fund_in(refs, replenish_period="monthly", replenish_amount=D("1000"))
+    )
+    html = user_client.get("/funds").text
+    assert "Сводка ·" in html and "Пополнение в этом месяце" in html and "Итого" in html

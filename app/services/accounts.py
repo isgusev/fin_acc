@@ -6,14 +6,16 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import exists, or_, select
+from sqlalchemy import delete, exists, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import schemas
 from app.errors import ConflictError, NotFoundError, ValidationAppError
 from app.models import (
+    PLAN_FROM_START,
     Account,
+    AccountReplenishPlan,
     AccountType,
     AccountTypeCode,
     Operation,
@@ -124,9 +126,13 @@ def _has_operations(db: Session, account_id: uuid.UUID) -> bool:
     )
 
 
-def _commit(db: Session) -> None:
+def _commit(db: Session, flush_only: bool = False) -> None:
+    """commit (или flush) с переводом нарушения уникальности имени в понятную ошибку."""
     try:
-        db.commit()
+        if flush_only:
+            db.flush()
+        else:
+            db.commit()
     except IntegrityError as e:
         db.rollback()
         if "uq_accounts_owner_name_open" in str(e.orig):
@@ -153,7 +159,7 @@ def calc_replenish_amount(target: Decimal, months_to_goal: int, period: Replenis
 
 
 def _account_fields(at: AccountType, data: schemas.AccountIn) -> dict[str, object]:
-    fields = data.model_dump()
+    fields = data.model_dump(exclude={"plan_effective_from"})
     if data.target_amount is None:
         return fields
     if at.code != AccountTypeCode.FUND.value:
@@ -174,11 +180,57 @@ def _account_fields(at: AccountType, data: schemas.AccountIn) -> dict[str, objec
     return fields
 
 
+def _add_initial_plan(db: Session, acc: Account) -> None:
+    """План, с которым счёт создан, действует «с самого начала»."""
+    db.add(
+        AccountReplenishPlan(
+            account_id=acc.id,
+            effective_from=PLAN_FROM_START,
+            period=acc.replenish_period,
+            amount=acc.replenish_amount,
+        )
+    )
+
+
+def _save_plan_change(db: Session, acc: Account, effective_from: date) -> None:
+    """Новый план (текущие сумма и регулярность счёта) действует с месяца effective_from.
+
+    Планы, начинавшиеся с этой даты и позже, заменяются новым.
+    """
+    start = date(effective_from.year, effective_from.month, 1)
+    db.execute(
+        delete(AccountReplenishPlan).where(
+            AccountReplenishPlan.account_id == acc.id,
+            AccountReplenishPlan.effective_from >= start,
+        )
+    )
+    db.add(
+        AccountReplenishPlan(
+            account_id=acc.id,
+            effective_from=start,
+            period=acc.replenish_period,
+            amount=acc.replenish_amount,
+        )
+    )
+
+
+def replenish_plans(db: Session, account_id: uuid.UUID) -> list[AccountReplenishPlan]:
+    return list(
+        db.scalars(
+            select(AccountReplenishPlan)
+            .where(AccountReplenishPlan.account_id == account_id)
+            .order_by(AccountReplenishPlan.effective_from)
+        )
+    )
+
+
 def create_account(db: Session, user: User, data: schemas.AccountIn) -> Account:
     at = references.get_account_type(db, data.account_type_id)
     _check_single_per_user(db, user, at)
     acc = Account(owner_id=user.id, **_account_fields(at, data))
     db.add(acc)
+    _commit(db, flush_only=True)
+    _add_initial_plan(db, acc)
     _commit(db)
     return acc
 
@@ -190,7 +242,10 @@ def ensure_unallocated_account(db: Session, user: User) -> None:
         Account.owner_id == user.id, Account.account_type_id == at.id, ~Account.is_closed
     )
     if db.scalar(exists_q) is None:
-        db.add(Account(owner_id=user.id, name=UNALLOCATED_DEFAULT_NAME, account_type_id=at.id))
+        acc = Account(owner_id=user.id, name=UNALLOCATED_DEFAULT_NAME, account_type_id=at.id)
+        db.add(acc)
+        _commit(db, flush_only=True)
+        _add_initial_plan(db, acc)
         _commit(db)
 
 
@@ -208,8 +263,11 @@ def update_account(
             _check_single_per_user(db, user, at, exclude_id=acc.id)
     else:
         at = acc.account_type
+    old_plan = (acc.replenish_period, acc.replenish_amount)
     for k, v in _account_fields(at, data).items():
         setattr(acc, k, v)
+    if (acc.replenish_period, acc.replenish_amount) != old_plan:
+        _save_plan_change(db, acc, data.plan_effective_from or date.today())
     _commit(db)
     db.refresh(acc)
     return acc
@@ -273,6 +331,7 @@ def reopen_fund(
     )
     db.add(new)
     db.flush()
+    _add_initial_plan(db, new)
 
     if balance != ZERO:
         transfer = references.operation_type_by_code(db, OperationTypeCode.TRANSFER.value)
@@ -330,6 +389,17 @@ MONTHS_RU = [
 
 
 @dataclass(frozen=True)
+class PlanChange:
+    """План в строке истории сменился: с effective_from действует новый план."""
+
+    effective_from: date
+    new_period: ReplenishPeriod
+    new_amount: Decimal | None
+    old_period: ReplenishPeriod
+    old_amount: Decimal | None
+
+
+@dataclass(frozen=True)
 class ReplenishmentRow:
     start: date  # начало периода
     end: date  # конец периода
@@ -337,6 +407,7 @@ class ReplenishmentRow:
     amount: Decimal  # пополнено за период (по сегодняшний день)
     target: Decimal | None  # норма пополнения за период (None — регулярность не задана)
     percent: int | None
+    plan_change: PlanChange | None = None
 
 
 def _is_reopen_transfer(op: Operation, account: Account) -> bool:
@@ -385,14 +456,35 @@ def _periods(period: ReplenishPeriod, today: date, months: int) -> list[tuple[da
     return out
 
 
+def _months_in(start: date, end: date) -> int:
+    return (end.year * 12 + end.month) - (start.year * 12 + start.month) + 1
+
+
+def period_norm(
+    period: ReplenishPeriod, amount: Decimal | None, start: date, end: date
+) -> Decimal | None:
+    """Норма пополнения за [start, end] по плану «amount раз в period».
+
+    Если длина строки истории отличается от периода плана (регулярность меняли),
+    норма пересчитывается пропорционально: ежемесячные 20 000 в строке-квартале — 60 000.
+    """
+    if period == ReplenishPeriod.NONE or not amount:
+        return None
+    if period == ReplenishPeriod.WEEKLY:
+        days = (end - start).days + 1
+        return money(amount * Decimal(days) / Decimal(7))
+    return money(amount * Decimal(_months_in(start, end)) / PERIOD_MONTHS[period])
+
+
 def replenishment_summary(
     db: Session, user: User, account: Account, today: date | None = None, months: int = 6
 ) -> list[ReplenishmentRow]:
     """История пополнений за последние `months` месяцев с разбивкой по периодам регулярности.
 
-    Ежемесячно — 6 строк-месяцев; ежеквартально — кварталы, попадающие в эти 6 месяцев
-    (в октябре — II, III и IV); ежегодно — годы; еженедельно — 6 месяцев с нормой
-    «сумма × дней в месяце / 7». Процент — пополнено за период / норма за период.
+    Строки — по текущей регулярности: ежемесячно — 6 месяцев; ежеквартально — кварталы,
+    попадающие в эти 6 месяцев; ежегодно — годы; еженедельно — 6 месяцев.
+    Норма строки — по плану пополнения, действовавшему в этот период (история планов),
+    поэтому изменение суммы или регулярности не пересчитывает прошлые периоды.
     """
     today = today or date.today()
     ops = [
@@ -400,15 +492,106 @@ def replenishment_summary(
         for o in replenishment_history(db, user, account.id)
         if not _is_reopen_transfer(o, account)
     ]
-    period = account.replenish_period
+    plans = replenish_plans(db, account.id)
+    if not plans:  # подстраховка: счёт без истории планов
+        plans = [
+            AccountReplenishPlan(
+                effective_from=PLAN_FROM_START,
+                period=account.replenish_period,
+                amount=account.replenish_amount,
+            )
+        ]
+
     rows: list[ReplenishmentRow] = []
-    for start, end, label in _periods(period, today, months):
+    for start, end, label in _periods(account.replenish_period, today, months):
         amount = sum((o.amount for o in ops if start <= o.op_date <= end), ZERO)
-        target: Decimal | None = None
-        if period != ReplenishPeriod.NONE and account.replenish_amount:
-            target = account.replenish_amount
-            if period == ReplenishPeriod.WEEKLY:
-                target = money(target * Decimal(end.day) / Decimal(7))
+        # действующий в периоде план — последний, начавшийся не позже конца периода
+        idx = max((i for i, p in enumerate(plans) if p.effective_from <= end), default=0)
+        plan = plans[idx]
+        target = period_norm(plan.period, plan.amount, start, end)
         percent = int((amount * 100 / target).to_integral_value()) if target else None
-        rows.append(ReplenishmentRow(start, end, label, amount, target, percent))
+        change = None
+        if idx > 0 and start <= plan.effective_from <= end:
+            prev = plans[idx - 1]
+            change = PlanChange(
+                plan.effective_from, plan.period, plan.amount, prev.period, prev.amount
+            )
+        rows.append(ReplenishmentRow(start, end, label, amount, target, percent, change))
     return rows
+
+
+# ---------------------------------------------------------------- сводка месяца по счетам
+
+
+@dataclass(frozen=True)
+class MonthAccountRow:
+    account_id: uuid.UUID
+    name: str
+    balance: Decimal
+    replenished: Decimal  # пополнено в текущем месяце
+    expected: Decimal | None  # ожидаемое пополнение месяца (None — план не задан)
+    percent: int | None
+
+
+@dataclass(frozen=True)
+class MonthOverview:
+    month_label: str  # «Октябрь 2026»
+    rows: list[MonthAccountRow]
+    total_balance: Decimal
+    total_replenished: Decimal  # только по счетам с планом
+    total_expected: Decimal
+    total_percent: int | None
+
+
+def _percent(amount: Decimal, target: Decimal | None) -> int | None:
+    return int((amount * 100 / target).to_integral_value()) if target else None
+
+
+def month_overview(
+    db: Session,
+    user: User,
+    accounts: Sequence[schemas.AccountOut],
+    today: date | None = None,
+) -> MonthOverview:
+    """Сводка текущего месяца по открытым счетам: баланс и выполнение плана пополнения.
+
+    Ожидаемое пополнение месяца — по плану, действующему в этом месяце, приведённому
+    к месяцу (ежеквартальный план — треть, ежегодный — двенадцатая часть, еженедельный —
+    сумма × дней месяца / 7). Итоговый процент считается только по счетам с планом.
+    """
+    today = today or date.today()
+    start = date(today.year, today.month, 1)
+    end = _month_shift(start, 1) - timedelta(days=1)
+    rows: list[MonthAccountRow] = []
+    total_repl = total_exp = ZERO
+    for a in accounts:
+        acc = get_account(db, user, a.id)
+        replenished = sum(
+            (
+                o.amount
+                for o in replenishment_history(db, user, acc.id)
+                if start <= o.op_date <= end and not _is_reopen_transfer(o, acc)
+            ),
+            ZERO,
+        )
+        plans = [p for p in replenish_plans(db, acc.id) if p.effective_from <= end]
+        if plans:
+            expected = period_norm(plans[-1].period, plans[-1].amount, start, end)
+        else:
+            expected = period_norm(acc.replenish_period, acc.replenish_amount, start, end)
+        if expected:
+            total_repl += replenished
+            total_exp += expected
+        rows.append(
+            MonthAccountRow(
+                a.id, a.name, a.balance, replenished, expected, _percent(replenished, expected)
+            )
+        )
+    return MonthOverview(
+        month_label=f"{MONTHS_RU[start.month - 1]} {start.year}",
+        rows=rows,
+        total_balance=sum((a.balance for a in accounts), ZERO),
+        total_replenished=total_repl,
+        total_expected=total_exp,
+        total_percent=_percent(total_repl, total_exp),
+    )
