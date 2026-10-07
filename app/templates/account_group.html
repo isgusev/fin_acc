@@ -60,6 +60,12 @@
             {% else %}
               <span class="muted small">Регулярность или сумма пополнения не заданы</span>
             {% endif %}
+            {% set ch = row.plan_change %}
+            {% if ch %}
+              <div class="muted small plan-change">План с {{ ch.effective_from|ru_date }}:
+                {{ (ch.new_amount|money ~ " ₽ ") if ch.new_amount else "" }}{{ ch.new_period|period|lower }}
+                (было {{ (ch.old_amount|money ~ " ₽ ") if ch.old_amount else "" }}{{ ch.old_period|period|lower }})</div>
+            {% endif %}
           </td>
         </tr>
       {% endfor %}

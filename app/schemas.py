@@ -200,10 +200,17 @@ class AccountIn(InModel):
     months_to_goal: int | None = Field(default=None, ge=1, le=1200)  # None = бессрочно
     # Только для фондов: при заданной целевой сумме сумма пополнения рассчитывается
     target_amount: PositiveMoney | None = None
+    # Только при изменении счёта: с какой даты действует новый план пополнения
+    # (сумма/регулярность). Учитывается месяц; по умолчанию — текущий месяц.
+    plan_effective_from: date | None = None
 
-    _norm = field_validator("replenish_amount", "months_to_goal", "target_amount", mode="before")(
-        _empty_to_none
-    )
+    _norm = field_validator(
+        "replenish_amount",
+        "months_to_goal",
+        "target_amount",
+        "plan_effective_from",
+        mode="before",
+    )(_empty_to_none)
 
 
 class AccountOut(OutModel):

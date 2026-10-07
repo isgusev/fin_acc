@@ -94,6 +94,8 @@ def _account_values(acc: Any) -> dict[str, str]:
         "replenish_amount": fmt_money_input(acc.replenish_amount),
         "months_to_goal": "" if acc.months_to_goal is None else str(acc.months_to_goal),
         "target_amount": fmt_money_input(acc.target_amount),
+        # по умолчанию изменение плана действует с текущего месяца
+        "plan_effective_from": date.today().strftime("%Y-%m"),
     }
 
 
@@ -107,8 +109,16 @@ def _account_data(values: dict[str, str]) -> schemas.AccountIn:
             "replenish_amount": norm_money(opt(values, "replenish_amount")),
             "months_to_goal": opt(values, "months_to_goal"),
             "target_amount": norm_money(opt(values, "target_amount")),
+            "plan_effective_from": _month_to_date(opt(values, "plan_effective_from")),
         },
     )
+
+
+def _month_to_date(v: str | None) -> str | None:
+    """«2026-10» (input type=month) → «2026-10-01»; иное отдаём валидатору как есть."""
+    if v and len(v) == 7 and v[4] == "-":
+        return f"{v}-01"
+    return v
 
 
 def _render_account_form(
