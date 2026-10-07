@@ -10,7 +10,7 @@ from app.models import User, UserSession
 from app.security import new_token, tokens_equal
 from app.services import users as users_svc
 
-CSRF_COOKIE = "fa_csrf"
+CSRF_COOKIE = get_settings().csrf_cookie
 CSRF_HEADER = "X-CSRF-Token"
 CSRF_FORM_FIELD = "csrf_token"
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
@@ -33,7 +33,7 @@ class PasswordChangeRequired(ForbiddenError):
 def get_session(request: Request, db: Session = Depends(get_db)) -> UserSession | None:
     if hasattr(request.state, "user_session"):
         return request.state.user_session
-    token = request.cookies.get(get_settings().session_cookie_name)
+    token = request.cookies.get(get_settings().session_cookie)
     sess = users_svc.session_by_token(db, token)
     request.state.user_session = sess
     return sess

@@ -14,13 +14,27 @@ class Settings(BaseSettings):
 
     # Cookie сессии. В production должны быть secure=True (HTTPS).
     session_cookie_name: str = "fa_session"
-    session_ttl_hours: int = 24 * 7
+    session_ttl_hours: int = 24 * 7  # абсолютный срок жизни сессии
+    session_idle_minutes: int = 12 * 60  # выход после стольких минут бездействия
     cookie_secure: bool = False
     force_https: bool = False
 
-    # Защита от перебора пароля
+    # Защита от перебора пароля: блокировка учётной записи...
     login_max_attempts: int = 5
     login_lock_minutes: int = 15
+    # ...и ограничение частоты запросов с одного IP (за окно в минутах)
+    login_rate_limit: int = 20
+    login_rate_window_minutes: int = 5
+    register_rate_limit: int = 5
+    register_rate_window_minutes: int = 60
+
+    # Сколько доверенных прокси стоит перед приложением (у Amvera — входной прокси).
+    # IP клиента для лимитов берётся из X-Forwarded-For на столько позиций справа:
+    # левые значения клиент может подделать. 0 — не доверять X-Forwarded-For вовсе.
+    trusted_proxy_hops: int = 1
+
+    # Максимальный размер тела запроса (импорт выписки ~200 тыс. символов ≈ 1,2 МБ в форме)
+    max_body_bytes: int = 2 * 1024 * 1024
 
     # Создание первого администратора при старте (если администраторов ещё нет)
     admin_email: str | None = None
@@ -34,6 +48,19 @@ class Settings(BaseSettings):
             if v.startswith(prefix):
                 return "postgresql+psycopg://" + v[len(prefix) :]
         return v
+
+    @property
+    def cookie_prefix(self) -> str:
+        """По HTTPS — префикс __Host-: cookie нельзя подменить с поддомена или по HTTP."""
+        return "__Host-" if self.cookie_secure else ""
+
+    @property
+    def session_cookie(self) -> str:
+        return self.cookie_prefix + self.session_cookie_name
+
+    @property
+    def csrf_cookie(self) -> str:
+        return self.cookie_prefix + "fa_csrf"
 
     @property
     def is_production(self) -> bool:

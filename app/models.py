@@ -114,6 +114,10 @@ class UserSession(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Последняя активность (обновляется не чаще раза в 5 минут) — для выхода по бездействию
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
     user: Mapped[User] = relationship(lazy="joined")
 

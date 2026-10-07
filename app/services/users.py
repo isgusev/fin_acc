@@ -34,6 +34,7 @@ from app.services import references
 from app.services.planning import check_advance_days
 
 INVALID_CREDENTIALS = "Неверный email или пароль"
+SESSION_TOUCH_INTERVAL = timedelta(minutes=5)
 
 
 def _now() -> datetime:
@@ -123,8 +124,17 @@ def session_by_token(db: Session, token: str | None) -> UserSession | None:
     if not token:
         return None
     sess = db.scalar(select(UserSession).where(UserSession.token_hash == token_hash(token)))
-    if sess is None or sess.expires_at < _now() or not sess.user.is_active:
+    if sess is None:
         return None
+    now = _now()
+    idle = timedelta(minutes=get_settings().session_idle_minutes)
+    if sess.expires_at < now or sess.last_seen_at < now - idle or not sess.user.is_active:
+        db.delete(sess)
+        db.commit()
+        return None
+    if sess.last_seen_at < now - SESSION_TOUCH_INTERVAL:
+        sess.last_seen_at = now
+        db.commit()
     return sess
 
 

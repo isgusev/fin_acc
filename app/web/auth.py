@@ -6,10 +6,12 @@ from sqlalchemy.orm import Session
 
 from app import schemas
 from app.api.auth import clear_session_cookie, set_session_cookie
+from app.config import get_settings
 from app.db import get_db
 from app.deps import CSRF_COOKIE, csrf_protect, current_user, get_session
 from app.errors import AppError, ValidationAppError
 from app.models import User, UserSession
+from app.ratelimit import limit_login, limit_register
 from app.services import references
 from app.services import users as users_svc
 from app.web.forms import (
@@ -30,7 +32,7 @@ def _login_response(db: Session, user: User, nxt: str, flash: str | None = None)
     token, _ = users_svc.create_session(db, user)
     response = redirect(nxt, flash=flash)
     set_session_cookie(response, token)
-    response.delete_cookie(CSRF_COOKIE, path="/")
+    response.delete_cookie(CSRF_COOKIE, path="/", secure=get_settings().cookie_secure)
     return response
 
 
@@ -55,7 +57,7 @@ def login_page(
     )
 
 
-@router.post("/login", dependencies=[Depends(csrf_protect)])
+@router.post("/login", dependencies=[Depends(csrf_protect), Depends(limit_login)])
 async def login_submit(request: Request, db: Session = Depends(get_db)) -> Response:
     values = form_values(await request.form())
     f = FormState(values=values)
@@ -100,7 +102,7 @@ def register_page(
     )
 
 
-@router.post("/register", dependencies=[Depends(csrf_protect)])
+@router.post("/register", dependencies=[Depends(csrf_protect), Depends(limit_register)])
 async def register_submit(request: Request, db: Session = Depends(get_db)) -> Response:
     values = form_values(await request.form())
     f = FormState(values=values)

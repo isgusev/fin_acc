@@ -19,6 +19,7 @@ from app.models import (
     User,
     UserRole,
 )
+from app.ratelimit import client_ip
 from app.services import references
 from app.services import users as users_svc
 from app.web.forms import FormInvalid, FormState, checkbox, form_values, norm_money, opt, validate
@@ -48,6 +49,7 @@ def _render_users(
         {
             "users": users_svc.list_users(db),
             "registration_open": references.is_registration_open(db),
+            "client_ip": client_ip(request),
             "temp_password": temp_password,
             "target": target,
             "tab": "users",

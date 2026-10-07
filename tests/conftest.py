@@ -345,3 +345,13 @@ def admin_client(new_client: Callable[[], TestClient], admin: User) -> TestClien
     c = new_client()
     login(c, admin.email)
     return c
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limits() -> Iterator[None]:
+    """Лимиты попыток по IP — в памяти процесса; каждый тест начинает с чистого листа."""
+    from app import ratelimit
+
+    ratelimit.reset()
+    yield
+    ratelimit.reset()
