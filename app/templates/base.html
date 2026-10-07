@@ -16,7 +16,7 @@
     <button class="nav-toggle" type="button" data-nav-toggle aria-controls="main-nav" aria-expanded="false" aria-label="Меню">☰</button>
     <nav class="nav" id="main-nav">
       {% if not user.must_change_password %}
-      {% set items = [("/", "Главная"), ("/monthly", "Ежемесячные траты"), ("/funds", "Фонды"), ("/planning", "Планирование"), ("/profile", "Профиль")] %}
+      {% set items = [("/", "Главная"), ("/monthly", "Ежемесячные траты"), ("/funds", "Фонды"), ("/planning", "Планирование")] %}
       {% for href, label in items %}
         <a href="{{ href }}" class="{{ 'active' if (path == href or (href != '/' and path.startswith(href))) else '' }}">{{ label }}</a>
       {% endfor %}
@@ -24,7 +24,7 @@
         <a href="/admin" class="{{ 'active' if path.startswith('/admin') else '' }}">Администрирование</a>
       {% endif %}
       {% endif %}
-      <span class="nav-user" title="{{ user.email }}">{{ user.display_name }}</span>
+      <a href="/profile" class="nav-user{{ ' active' if path.startswith('/profile') else '' }}" title="Профиль · {{ user.email }}">{{ user.display_name }}</a>
       <form method="post" action="/logout" class="nav-logout">
         {{ m.csrf() }}
         <button type="submit" class="btn btn-ghost btn-sm">Выйти</button>

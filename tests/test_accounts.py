@@ -325,3 +325,176 @@ def test_replenishment_history(db, user, make):
     assert [o.id for o in fund_hist] == [t2.id, t1.id]  # новые сверху, без исходящих/расходов
     assert [o.id for o in accounts_svc.replenishment_history(db, user, unalloc.id)] == [inc.id]
     assert [o.id for o in accounts_svc.replenishment_history(db, user, cur.id)] == [t_out.id]
+
+
+# ---------------------------------------------------------------- целевая сумма фонда
+
+
+def fund_in(refs, **kw):
+    data = {"name": "Отпуск", "account_type_id": refs.account_types["fund"]} | kw
+    return schemas.AccountIn(**data)
+
+
+@pytest.mark.parametrize(
+    ("target", "months", "period", "expected"),
+    [
+        ("5000", 5, "monthly", "1000.00"),  # 5000 / (5 / 1)
+        ("15000", 9, "quarterly", "5000.00"),  # 15000 / (9 / 3)
+        ("120000", 24, "yearly", "60000.00"),  # 120000 / (24 / 12)
+        ("5200", 12, "weekly", "100.00"),  # 52 недели за год
+        ("1000", 3, "monthly", "333.33"),
+    ],
+)
+def test_fund_replenish_amount_from_target(db, user, refs, target, months, period, expected):
+    acc = accounts_svc.create_account(
+        db,
+        user,
+        fund_in(
+            refs,
+            target_amount=D(target),
+            months_to_goal=months,
+            replenish_period=period,
+            replenish_amount=D("1"),
+        ),  # введённая вручную сумма игнорируется
+    )
+    assert acc.replenish_amount == D(expected)
+    assert acc.target_amount == D(target)
+
+
+def test_fund_target_recalculated_on_update(db, user, refs):
+    acc = accounts_svc.create_account(
+        db,
+        user,
+        fund_in(refs, target_amount=D("5000"), months_to_goal=5, replenish_period="monthly"),
+    )
+    acc = accounts_svc.update_account(
+        db,
+        user,
+        acc.id,
+        fund_in(refs, target_amount=D("6000"), months_to_goal=6, replenish_period="quarterly"),
+    )
+    assert acc.replenish_amount == D("3000.00")
+
+
+@pytest.mark.parametrize(
+    ("kw", "field"),
+    [
+        ({"months_to_goal": None, "replenish_period": "monthly"}, "months_to_goal"),
+        ({"months_to_goal": 5, "replenish_period": "none"}, "replenish_period"),
+        ({"months_to_goal": 2, "replenish_period": "quarterly"}, "months_to_goal"),
+    ],
+)
+def test_fund_target_requires_term_and_period(db, user, refs, kw, field):
+    with pytest.raises(ValidationAppError) as ei:
+        accounts_svc.create_account(db, user, fund_in(refs, target_amount=D("5000"), **kw))
+    assert ei.value.field == field
+
+
+def test_target_amount_only_for_funds(db, user, refs):
+    with pytest.raises(ValidationAppError) as ei:
+        accounts_svc.create_account(
+            db,
+            user,
+            schemas.AccountIn(
+                name="Еда",
+                account_type_id=refs.account_types["monthly"],
+                target_amount=D("5000"),
+                months_to_goal=5,
+                replenish_period="monthly",
+            ),
+        )
+    assert ei.value.field == "target_amount"
+
+
+def test_reopen_fund_keeps_target(db, user, refs):
+    acc = accounts_svc.create_account(
+        db,
+        user,
+        fund_in(refs, target_amount=D("5000"), months_to_goal=5, replenish_period="monthly"),
+    )
+    _, new, _ = accounts_svc.reopen_fund(db, user, acc.id)
+    assert (new.target_amount, new.replenish_amount) == (D("5000.00"), D("1000.00"))
+
+
+# ---------------------------------------------------------------- сводка пополнений
+
+
+def test_replenishment_summary_monthly(db, user, refs, make):
+    src = make.account(user, "current")
+    fund = accounts_svc.create_account(
+        db, user, fund_in(refs, replenish_period="monthly", replenish_amount=D("1000"))
+    )
+    make.transfer(user, src, fund, "400", on=date(2026, 10, 2))
+    make.transfer(user, src, fund, "200", on=date(2026, 10, 20))
+    make.transfer(user, src, fund, "1500", on=date(2026, 9, 5))
+    make.transfer(user, src, fund, "999", on=date(2026, 3, 1))  # старше 6 месяцев
+
+    rows = accounts_svc.replenishment_summary(db, user, fund, today=date(2026, 10, 25))
+    assert [r.label for r in rows] == [
+        "Октябрь 2026",
+        "Сентябрь 2026",
+        "Август 2026",
+        "Июль 2026",
+        "Июнь 2026",
+        "Май 2026",
+    ]
+    assert (rows[0].amount, rows[0].percent) == (D("600.00"), 60)
+    assert (rows[1].amount, rows[1].percent) == (D("1500.00"), 150)  # перевыполнение
+    assert (rows[2].amount, rows[2].percent) == (D("0.00"), 0)
+
+
+def test_replenishment_summary_quarterly(db, user, refs, make):
+    """В октябре 2026 последние 6 месяцев (май–октябрь) задевают II, III и IV кварталы."""
+    src = make.account(user, "current")
+    fund = accounts_svc.create_account(
+        db, user, fund_in(refs, replenish_period="quarterly", replenish_amount=D("3000"))
+    )
+    make.transfer(user, src, fund, "600", on=date(2026, 4, 10))  # II кв. — целиком в строке
+    make.transfer(user, src, fund, "1000", on=date(2026, 7, 10))
+    make.transfer(user, src, fund, "500", on=date(2026, 8, 10))
+    make.transfer(user, src, fund, "300", on=date(2026, 10, 1))
+    rows = accounts_svc.replenishment_summary(db, user, fund, date(2026, 10, 5))
+    assert [(r.label, r.amount, r.percent) for r in rows] == [
+        ("IV кв. 2026", D("300.00"), 10),
+        ("III кв. 2026", D("1500.00"), 50),
+        ("II кв. 2026", D("600.00"), 20),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("today", "labels"),
+    [
+        (date(2026, 10, 5), ["2026 год"]),
+        (date(2026, 3, 5), ["2026 год", "2025 год"]),  # окт. 2025 – март 2026
+    ],
+)
+def test_replenishment_summary_yearly(db, user, refs, make, today, labels):
+    fund = accounts_svc.create_account(
+        db, user, fund_in(refs, replenish_period="yearly", replenish_amount=D("12000"))
+    )
+    make.transfer(user, make.account(user, "current"), fund, "3000", on=date(2026, 2, 1))
+    rows = accounts_svc.replenishment_summary(db, user, fund, today)
+    assert [r.label for r in rows] == labels
+    assert (rows[0].amount, rows[0].percent) == (D("3000.00"), 25)
+
+
+def test_replenishment_summary_weekly_is_monthly(db, user, refs, make):
+    fund = accounts_svc.create_account(
+        db, user, fund_in(refs, replenish_period="weekly", replenish_amount=D("700"))
+    )
+    rows = accounts_svc.replenishment_summary(db, user, fund, date(2026, 10, 5))
+    assert len(rows) == 6 and rows[0].label == "Октябрь 2026"
+    assert rows[0].target == D("3100.00")  # 700 × 31 / 7
+
+
+def test_replenishment_summary_without_plan_and_reopen_excluded(db, user, refs, make):
+    src = make.account(user, "current")
+    fund = accounts_svc.create_account(db, user, fund_in(refs))  # регулярность не задана
+    make.transfer(user, src, fund, "700", on=date.today())
+    rows = accounts_svc.replenishment_summary(db, user, fund)
+    assert len(rows) == 6
+    assert rows[0].amount == D("700.00") and rows[0].percent is None
+
+    # перенос остатка при «Открыть заново» пополнением не считается
+    _, new, _ = accounts_svc.reopen_fund(db, user, fund.id)
+    assert accounts_svc.replenishment_summary(db, user, new)[0].amount == D("0.00")

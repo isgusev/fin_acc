@@ -11,7 +11,14 @@ from app import schemas
 from app.db import get_db
 from app.deps import admin_user, csrf_protect
 from app.errors import AppError, ConflictError, NotFoundError
-from app.models import AccountType, IncomeKind, OperationType, User, UserRole
+from app.models import (
+    AccountType,
+    ExpenseCategory,
+    IncomeKind,
+    OperationType,
+    User,
+    UserRole,
+)
 from app.services import references
 from app.services import users as users_svc
 from app.web.forms import FormInvalid, FormState, checkbox, form_values, norm_money, opt, validate
@@ -132,6 +139,14 @@ def _ik_values(ik: IncomeKind) -> dict[str, str]:
     }
 
 
+def _cat_values(c: ExpenseCategory) -> dict[str, str]:
+    return {
+        "name": c.name,
+        "sort_order": str(c.sort_order),
+        "is_active": "1" if c.is_active else "",
+    }
+
+
 def _ot_values(ot: OperationType) -> dict[str, str]:
     return {"name": ot.name}
 
@@ -150,6 +165,9 @@ def _render_references(
         values={"sort_order": "100", "is_active": "1"}, action="/admin/income-kinds"
     )
     ot_form = forms.get("ot")
+    cat_form = forms.get("cat") or FormState(
+        values={"sort_order": "100", "is_active": "1"}, action="/admin/expense-categories"
+    )
     edit_at = db.get(AccountType, at_form.edit_id) if at_form.edit_id else None
     return render(
         request,
@@ -163,6 +181,8 @@ def _render_references(
             "ot_form": ot_form,
             "edit_at": edit_at,
             "edit_ik": db.get(IncomeKind, ik_form.edit_id) if ik_form.edit_id else None,
+            "categories": references.expense_categories(db),
+            "cat_form": cat_form,
             "tab": "references",
         },
         status_code=status_code,
@@ -175,9 +195,17 @@ def admin_references(
     at: str | None = None,
     ik: str | None = None,
     ot: str | None = None,
+    cat: str | None = None,
     db: Session = Depends(get_db),
 ) -> Response:
     forms: dict[str, FormState] = {}
+    if (cat_id := _int_or_none(cat)) is not None:
+        category = references.get_expense_category(db, cat_id)
+        forms["cat"] = FormState(
+            values=_cat_values(category),
+            action=f"/admin/expense-categories/{category.id}",
+            edit_id=category.id,
+        )
     if (at_id := _int_or_none(at)) is not None:
         obj = references.get_account_type(db, at_id)
         forms["at"] = FormState(
@@ -329,6 +357,72 @@ def income_kind_delete(kind_id: int, db: Session = Depends(get_db)) -> Response:
         db.rollback()
         return redirect("/admin/references", flash=exc.message, error=True)
     return redirect("/admin/references", flash="Вид дохода удалён")
+
+
+# ---------------------------------------------------------------- категории расходов
+
+
+def _cat_data(values: dict[str, str]) -> schemas.ExpenseCategoryIn:
+    return validate(
+        schemas.ExpenseCategoryIn,
+        {
+            "name": values.get("name", ""),
+            "sort_order": opt(values, "sort_order"),
+            "is_active": checkbox(values, "is_active"),
+        },
+    )
+
+
+@router.post("/expense-categories", dependencies=csrf)
+async def category_create(request: Request, db: Session = Depends(get_db)) -> Response:
+    values = await _form(request)
+    f = FormState(values=values, action="/admin/expense-categories")
+    try:
+        c = references.create_expense_category(db, _cat_data(values))
+    except (FormInvalid, AppError) as exc:
+        db.rollback()
+        f.apply(exc)
+        return _render_references(request, db, {"cat": f}, 422)
+    return redirect("/admin/references#categories", flash=f"Категория «{c.name}» добавлена")
+
+
+@router.post("/expense-categories/{category_id}", dependencies=csrf)
+async def category_update(
+    request: Request, category_id: int, db: Session = Depends(get_db)
+) -> Response:
+    references.get_expense_category(db, category_id)
+    values = await _form(request)
+    f = FormState(
+        values=values, action=f"/admin/expense-categories/{category_id}", edit_id=category_id
+    )
+    try:
+        c = references.update_expense_category(db, category_id, _cat_data(values))
+    except (FormInvalid, AppError) as exc:
+        db.rollback()
+        f.apply(exc)
+        return _render_references(request, db, {"cat": f}, 422)
+    return redirect("/admin/references#categories", flash=f"Категория «{c.name}» сохранена")
+
+
+@router.post("/expense-categories/{category_id}/toggle", dependencies=csrf)
+def category_toggle(category_id: int, db: Session = Depends(get_db)) -> Response:
+    c = references.get_expense_category(db, category_id)
+    data = schemas.ExpenseCategoryIn(
+        name=c.name, sort_order=c.sort_order, is_active=not c.is_active
+    )
+    c = references.update_expense_category(db, category_id, data)
+    state = "включена" if c.is_active else "отключена"
+    return redirect("/admin/references#categories", flash=f"Категория «{c.name}» {state}")
+
+
+@router.post("/expense-categories/{category_id}/delete", dependencies=csrf)
+def category_delete(category_id: int, db: Session = Depends(get_db)) -> Response:
+    try:
+        references.delete_expense_category(db, category_id)
+    except ConflictError as exc:
+        db.rollback()
+        return redirect("/admin/references#categories", flash=exc.message, error=True)
+    return redirect("/admin/references#categories", flash="Категория удалена")
 
 
 # ---------------------------------------------------------------- шкала налогов

@@ -12,7 +12,16 @@ from sqlalchemy.orm import Session
 from app import schemas
 from app.db import get_db
 from app.deps import admin_user
-from app.models import AccountType, Holiday, IncomeKind, OperationType, TaxBracket, User, UserRole
+from app.models import (
+    AccountType,
+    ExpenseCategory,
+    Holiday,
+    IncomeKind,
+    OperationType,
+    TaxBracket,
+    User,
+    UserRole,
+)
 from app.services import references
 from app.services import users as users_svc
 
@@ -135,6 +144,30 @@ def update_income_kind(
 @router.delete("/income-kinds/{kind_id}", status_code=204)
 def delete_income_kind(kind_id: int, db: Session = Depends(get_db)) -> None:
     references.delete_income_kind(db, kind_id)
+
+
+@router.get("/expense-categories", response_model=list[schemas.ExpenseCategoryOut])
+def list_expense_categories(db: Session = Depends(get_db)) -> list[ExpenseCategory]:
+    return list(references.expense_categories(db))
+
+
+@router.post("/expense-categories", response_model=schemas.ExpenseCategoryOut, status_code=201)
+def create_expense_category(
+    data: schemas.ExpenseCategoryIn, db: Session = Depends(get_db)
+) -> ExpenseCategory:
+    return references.create_expense_category(db, data)
+
+
+@router.put("/expense-categories/{category_id}", response_model=schemas.ExpenseCategoryOut)
+def update_expense_category(
+    category_id: int, data: schemas.ExpenseCategoryIn, db: Session = Depends(get_db)
+) -> ExpenseCategory:
+    return references.update_expense_category(db, category_id, data)
+
+
+@router.delete("/expense-categories/{category_id}", status_code=204)
+def delete_expense_category(category_id: int, db: Session = Depends(get_db)) -> None:
+    references.delete_expense_category(db, category_id)
 
 
 # ---------------------------------------------------------------- налоги

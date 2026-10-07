@@ -485,13 +485,11 @@ def test_sql_injection_strings_stored_literally(user_client):
             "op_date": "2026-01-10",
             "amount": "1",
             "name": INJECTION,
-            "category": "' OR '1'='1",
             "comment": INJECTION,
         },
     )
     assert r.status_code == 201, r.text
     op = user_client.get(f"{API}/operations/{r.json()['id']}").json()
-    assert op["category"] == "' OR '1'='1"
     assert op["comment"] == INJECTION.strip()
     # таблицы на месте
     assert len(user_client.get(f"{API}/accounts").json()) == 2
@@ -662,3 +660,41 @@ def test_prior_income_api(user_client, other_client):
     assert_error(
         user_client.get(f"{API}/planning/prior-income/1999"), 422, "VALIDATION_ERROR", "year"
     )
+
+
+def test_expense_categories_admin_only(admin_client, user_client):
+    url = f"{API}/admin/expense-categories"
+    assert_error(user_client.post(url, json={"name": "Хобби"}), 403, "FORBIDDEN")
+    r = admin_client.post(url, json={"name": "Хобби"})
+    assert r.status_code == 201
+    cat_id = r.json()["id"]
+    assert_error(admin_client.post(url, json={"name": "хобби"}), 409, "CONFLICT", "name")
+    names = [c["name"] for c in user_client.get(f"{API}/references").json()["expense_categories"]]
+    assert "Хобби" in names and "Еда" in names
+    r = admin_client.put(f"{url}/{cat_id}", json={"name": "Хобби", "is_active": False})
+    assert r.json()["is_active"] is False
+    names = [c["name"] for c in user_client.get(f"{API}/references").json()["expense_categories"]]
+    assert "Хобби" not in names  # пользователю — только активные
+    assert admin_client.delete(f"{url}/{cat_id}").status_code == 204
+
+
+def test_operation_api_category(user_client):
+    refs = user_client.get(f"{API}/references").json()
+    current_type = next(t["id"] for t in refs["account_types"] if t["code"] == "current")
+    food = next(c["id"] for c in refs["expense_categories"] if c["name"] == "Еда")
+    acc = user_client.post(
+        f"{API}/accounts", json={"name": "Карта", "account_type_id": current_type}
+    ).json()
+    body = {
+        "operation_type": "expense",
+        "account_id": acc["id"],
+        "op_date": "2026-10-01",
+        "amount": "250",
+        "name": "Обед",
+    }
+    assert_error(
+        user_client.post(f"{API}/operations", json=body), 422, "VALIDATION_ERROR", "category_id"
+    )
+    r = user_client.post(f"{API}/operations", json=body | {"category_id": food})
+    assert r.status_code == 201
+    assert (r.json()["category_id"], r.json()["category_name"]) == (food, "Еда")

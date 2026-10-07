@@ -43,6 +43,7 @@ from app.db import get_db  # noqa: E402
 from app.models import (  # noqa: E402
     Account,
     AccountType,
+    ExpenseCategory,
     IncomeKind,
     Operation,
     Planning,
@@ -131,6 +132,8 @@ class Refs:
         self.bonus_kind = self.income_kinds["Премия"]
         self.other_kind = self.income_kinds["Иное"]
         self.rent_kind = self.income_kinds["Аренда"]
+        self.categories = {c.name: c.id for c in db.scalars(select(ExpenseCategory))}
+        self.misc_category = self.categories["Разное"]
 
 
 @pytest.fixture
@@ -221,6 +224,9 @@ class Factory:
         name: str = "Покупка",
         **kw: object,
     ) -> Operation:
+        # для расхода со счёта «Текущий» категория обязательна — подставляем «Разное»
+        if account.account_type.code == "current":
+            kw.setdefault("category_id", self.refs.misc_category)
         return ops_svc.create_operation(
             self.db,
             user,

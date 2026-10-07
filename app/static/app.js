@@ -127,9 +127,86 @@
       }
       if (nameInput) nameInput.required = type === "expense";
       rebuildPlans(type);
+      syncCategory(type);
+    }
+
+    // Перевод: если выбранный счёт уже стоит во втором списке, второй сбрасывается
+    var targetSelect = form.querySelector("select[name=target_account_id]");
+
+    function resetPairIfSame(changed, other) {
+      if (currentType(form) !== "transfer" || !changed || !other) return;
+      if (changed.value && changed.value === other.value) other.value = "";
+    }
+
+    // Категория обязательна для расхода со счёта «Текущий»
+    var categorySelect = form.querySelector("select[name=category_id]");
+    var categoryReq = form.querySelector("[data-category-req]");
+
+    function syncCategory(type) {
+      if (!categorySelect || !accountSelect) return;
+      var opt = accountSelect.options[accountSelect.selectedIndex];
+      var required = type === "expense" && !!opt && opt.getAttribute("data-type-code") === "current";
+      categorySelect.required = required;
+      if (categoryReq) categoryReq.hidden = !required;
     }
 
     qsa(form, "[data-op-type]").forEach(function (r) { r.addEventListener("change", update); });
+    if (accountSelect) accountSelect.addEventListener("change", function () {
+      resetPairIfSame(accountSelect, targetSelect);
+      update();
+    });
+    if (targetSelect) targetSelect.addEventListener("change", function () {
+      resetPairIfSame(targetSelect, accountSelect);
+      update();
+    });
+    update();
+  }
+
+  /* ---------------------------------------------------------------- форма счёта */
+
+  function parseMoney(v) {
+    var n = parseFloat(String(v || "").replace(/[\s\u00a0]/g, "").replace(",", "."));
+    return isNaN(n) ? null : n;
+  }
+
+  function formatMoney(n) {
+    return n.toFixed(2).replace(".", ",");
+  }
+
+  function initAccountForm(form) {
+    var typeSelect = form.querySelector("[data-account-type]");
+    var targetField = form.querySelector("[data-target-field]");
+    var targetInput = form.querySelector("[data-target-input]");
+    var replenish = form.querySelector("[data-replenish-input]");
+    var period = form.querySelector("select[name=replenish_period]");
+    var months = form.querySelector("input[name=months_to_goal]");
+    var fundCode = form.getAttribute("data-fund-code");
+    var periodMonths = {};
+    try { periodMonths = JSON.parse(form.getAttribute("data-period-months") || "{}"); } catch (e) { periodMonths = {}; }
+
+    function update() {
+      var opt = typeSelect ? typeSelect.options[typeSelect.selectedIndex] : null;
+      var isFund = !!opt && opt.getAttribute("data-type-code") === fundCode;
+      if (targetField) setShown(targetField, isFund);
+      var target = isFund && targetInput ? parseMoney(targetInput.value) : null;
+      if (!replenish) return;
+      // при заданной целевой сумме сумму пополнения считает сервер — здесь только превью
+      replenish.readOnly = target !== null;
+      if (target === null) return;
+      var m = months ? parseInt(months.value, 10) : NaN;
+      var pm = period ? periodMonths[period.value] : undefined;
+      if (target > 0 && m > 0 && pm) {
+        replenish.value = formatMoney(Math.round(target / (m / pm) * 100) / 100);
+      } else {
+        replenish.value = "";
+      }
+    }
+
+    [typeSelect, targetInput, period, months].forEach(function (el) {
+      if (!el) return;
+      el.addEventListener("input", update);
+      el.addEventListener("change", update);
+    });
     update();
   }
 
@@ -198,5 +275,6 @@
     initCommon();
     qsa(document, "[data-op-form]").forEach(initOperationForm);
     qsa(document, "[data-plan-form]").forEach(initPlanForm);
+    qsa(document, "[data-account-form]").forEach(initAccountForm);
   });
 })();

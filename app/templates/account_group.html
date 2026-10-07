@@ -29,38 +29,43 @@
       <div class="muted small">
         Пополнение: {{ a.replenish_period|period }}{% if a.replenish_amount is not none %}, {{ a.replenish_amount|money }} ₽{% endif %}
         · До цели: {{ (a.months_to_goal ~ " мес.") if a.months_to_goal is not none else "бессрочно" }}
+        {% if a.target_amount is not none %}· Целевая сумма: {{ a.target_amount|money }} ₽{% endif %}
       </div>
     </div>
     <div class="account-balance">{{ m.amount(a.balance) }} ₽</div>
   </div>
   <div class="actions-row">
-    <a class="btn btn-sm" href="/operations/new?type=transfer&amp;next={{ page_path|urlencode }}">Пополнить переводом</a>
+    <a class="btn btn-sm" href="/operations/new?type=transfer&amp;target_account_id={{ a.id }}&amp;next={{ page_path|urlencode }}">Пополнить переводом</a>
     <a class="btn btn-sm btn-ghost" href="/accounts/{{ a.id }}/edit?next={{ page_path|urlencode }}">Изменить</a>
     {% if is_fund %}
       {{ m.post_button("/accounts/" ~ a.id ~ "/reopen", "Открыть заново", confirm="Открыть фонд «" ~ a.name ~ "» заново?\n\n1. Будет создан новый счёт «Фонд» с тем же наименованием и параметрами.\n2. Остаток старого счёта (" ~ (a.balance|money) ~ " ₽) будет переведён на новый.\n3. Старый счёт будет закрыт.", next=page_path) }}
     {% endif %}
   </div>
-  <h3>История пополнений</h3>
-  {% set hist = history.get(a.id, []) %}
-  {% if hist %}
+  <h3>История пополнений <span class="muted small">за 6 месяцев</span></h3>
   <div class="table-wrap">
-    <table class="table table-compact">
-      <thead><tr><th>Дата</th><th>Откуда</th><th>Наименование</th><th class="r">Сумма, ₽</th></tr></thead>
+    <table class="table table-compact replenish-table">
+      <thead><tr><th>Период</th><th class="r">Пополнено, ₽</th><th>Выполнение плана пополнения</th></tr></thead>
       <tbody>
-      {% for op in hist %}
+      {% for row in history.get(a.id, []) %}
         <tr>
-          <td class="nowrap">{{ op.op_date|ru_date }}</td>
-          <td>{% if op.operation_type.code == "transfer" %}{{ op.account.name }}{% else %}{{ op.operation_type.name }}{% endif %}</td>
-          <td>{{ op.name or "" }}</td>
-          <td class="r">{{ m.amount(op.amount) }}</td>
+          <td class="nowrap">{{ row.label }}</td>
+          <td class="r">{{ m.amount(row.amount) }}</td>
+          <td>
+            {% if row.target is not none %}
+            <div class="progress-cell">
+              <progress class="replenish-progress{% if row.percent >= 100 %} is-done{% endif %}" max="100" value="{{ [row.percent, 100]|min }}">{{ row.percent }}%</progress>
+              <span class="progress-pct">{{ row.percent }}%</span>
+            </div>
+            <div class="muted small">{{ row.amount|money }} из {{ row.target|money }} ₽</div>
+            {% else %}
+              <span class="muted small">Регулярность или сумма пополнения не заданы</span>
+            {% endif %}
+          </td>
         </tr>
       {% endfor %}
       </tbody>
     </table>
   </div>
-  {% else %}
-    <p class="empty">Пополнений пока не было.</p>
-  {% endif %}
 </section>
 {% else %}
 <section class="card"><p class="empty">Счетов с типом «{{ account_type.name }}» пока нет.</p></section>

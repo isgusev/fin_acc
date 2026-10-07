@@ -82,7 +82,7 @@
           <td><span class="badge badge-{{ code }}">{{ op.operation_type.name }}</span></td>
           <td>{% if code == "transfer" %}{{ op.account.name }} <span class="arrow">→</span> {{ op.target_account.name if op.target_account else "" }}{% else %}{{ op.account.name }}{% endif %}</td>
           <td>{{ op.name or "" }}</td>
-          <td>{{ op.category or "" }}</td>
+          <td>{{ op.category.name if op.category else "" }}</td>
           <td class="r nowrap"><span class="num amt-{{ code }}">{% if code == "expense" %}−{% elif code == "income" %}+{% endif %}{{ op.amount|money }}</span></td>
           <td class="comment">{{ op.comment or "" }}</td>
           <td class="small">{% if op.plan %}<a href="/planning?year={{ op.plan.planned_date.year }}">{{ op.plan|plan_label }}</a>{% endif %}</td>
