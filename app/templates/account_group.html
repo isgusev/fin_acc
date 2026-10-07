@@ -44,7 +44,7 @@
   <h3>История пополнений <span class="muted small">за 6 месяцев</span></h3>
   <div class="table-wrap">
     <table class="table table-compact replenish-table">
-      <thead><tr><th>Месяц</th><th class="r">Пополнено, ₽</th><th>Выполнение плана пополнения</th></tr></thead>
+      <thead><tr><th>Период</th><th class="r">Пополнено, ₽</th><th>Выполнение плана пополнения</th></tr></thead>
       <tbody>
       {% for row in history.get(a.id, []) %}
         <tr>
@@ -56,7 +56,7 @@
               <progress class="replenish-progress{% if row.percent >= 100 %} is-done{% endif %}" max="100" value="{{ [row.percent, 100]|min }}">{{ row.percent }}%</progress>
               <span class="progress-pct">{{ row.percent }}%</span>
             </div>
-            <div class="muted small">{{ row.period_label }}: {{ row.period_total|money }} из {{ row.target|money }} ₽</div>
+            <div class="muted small">{{ row.amount|money }} из {{ row.target|money }} ₽</div>
             {% else %}
               <span class="muted small">Регулярность или сумма пополнения не заданы</span>
             {% endif %}

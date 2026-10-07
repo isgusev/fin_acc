@@ -430,32 +430,61 @@ def test_replenishment_summary_monthly(db, user, refs, make):
     make.transfer(user, src, fund, "999", on=date(2026, 3, 1))  # старше 6 месяцев
 
     rows = accounts_svc.replenishment_summary(db, user, fund, today=date(2026, 10, 25))
-    assert [r.month for r in rows] == [
-        date(2026, m, 1) for m in (10, 9, 8, 7, 6, 5)
-    ]  # 6 строк, новые сверху
-    assert rows[0].label == "Октябрь 2026"
+    assert [r.label for r in rows] == [
+        "Октябрь 2026",
+        "Сентябрь 2026",
+        "Август 2026",
+        "Июль 2026",
+        "Июнь 2026",
+        "Май 2026",
+    ]
     assert (rows[0].amount, rows[0].percent) == (D("600.00"), 60)
     assert (rows[1].amount, rows[1].percent) == (D("1500.00"), 150)  # перевыполнение
     assert (rows[2].amount, rows[2].percent) == (D("0.00"), 0)
 
 
-def test_replenishment_summary_quarterly_accumulates(db, user, refs, make):
+def test_replenishment_summary_quarterly(db, user, refs, make):
+    """В октябре 2026 последние 6 месяцев (май–октябрь) задевают II, III и IV кварталы."""
     src = make.account(user, "current")
     fund = accounts_svc.create_account(
         db, user, fund_in(refs, replenish_period="quarterly", replenish_amount=D("3000"))
     )
+    make.transfer(user, src, fund, "600", on=date(2026, 4, 10))  # II кв. — целиком в строке
     make.transfer(user, src, fund, "1000", on=date(2026, 7, 10))
     make.transfer(user, src, fund, "500", on=date(2026, 8, 10))
     make.transfer(user, src, fund, "300", on=date(2026, 10, 1))
-    rows = {
-        r.month: r for r in accounts_svc.replenishment_summary(db, user, fund, date(2026, 10, 5))
-    }
-    jul, aug, sep, oct_ = (rows[date(2026, m, 1)] for m in (7, 8, 9, 10))
-    assert (jul.amount, jul.period_total, jul.percent) == (D("1000.00"), D("1000.00"), 33)
-    assert (aug.amount, aug.period_total, aug.percent) == (D("500.00"), D("1500.00"), 50)
-    assert (sep.amount, sep.period_total, sep.percent) == (D("0.00"), D("1500.00"), 50)
-    assert (oct_.period_total, oct_.percent) == (D("300.00"), 10)  # новый квартал
-    assert oct_.period_label == "за IV кв. 2026"
+    rows = accounts_svc.replenishment_summary(db, user, fund, date(2026, 10, 5))
+    assert [(r.label, r.amount, r.percent) for r in rows] == [
+        ("IV кв. 2026", D("300.00"), 10),
+        ("III кв. 2026", D("1500.00"), 50),
+        ("II кв. 2026", D("600.00"), 20),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("today", "labels"),
+    [
+        (date(2026, 10, 5), ["2026 год"]),
+        (date(2026, 3, 5), ["2026 год", "2025 год"]),  # окт. 2025 – март 2026
+    ],
+)
+def test_replenishment_summary_yearly(db, user, refs, make, today, labels):
+    fund = accounts_svc.create_account(
+        db, user, fund_in(refs, replenish_period="yearly", replenish_amount=D("12000"))
+    )
+    make.transfer(user, make.account(user, "current"), fund, "3000", on=date(2026, 2, 1))
+    rows = accounts_svc.replenishment_summary(db, user, fund, today)
+    assert [r.label for r in rows] == labels
+    assert (rows[0].amount, rows[0].percent) == (D("3000.00"), 25)
+
+
+def test_replenishment_summary_weekly_is_monthly(db, user, refs, make):
+    fund = accounts_svc.create_account(
+        db, user, fund_in(refs, replenish_period="weekly", replenish_amount=D("700"))
+    )
+    rows = accounts_svc.replenishment_summary(db, user, fund, date(2026, 10, 5))
+    assert len(rows) == 6 and rows[0].label == "Октябрь 2026"
+    assert rows[0].target == D("3100.00")  # 700 × 31 / 7
 
 
 def test_replenishment_summary_without_plan_and_reopen_excluded(db, user, refs, make):
@@ -463,6 +492,7 @@ def test_replenishment_summary_without_plan_and_reopen_excluded(db, user, refs, 
     fund = accounts_svc.create_account(db, user, fund_in(refs))  # регулярность не задана
     make.transfer(user, src, fund, "700", on=date.today())
     rows = accounts_svc.replenishment_summary(db, user, fund)
+    assert len(rows) == 6
     assert rows[0].amount == D("700.00") and rows[0].percent is None
 
     # перенос остатка при «Открыть заново» пополнением не считается

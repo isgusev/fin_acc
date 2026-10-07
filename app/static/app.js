@@ -127,26 +127,15 @@
       }
       if (nameInput) nameInput.required = type === "expense";
       rebuildPlans(type);
-      syncPair(type);
       syncCategory(type);
     }
 
-    // Перевод: счёт, выбранный в одном списке, не предлагается в другом
+    // Перевод: если выбранный счёт уже стоит во втором списке, второй сбрасывается
     var targetSelect = form.querySelector("select[name=target_account_id]");
 
-    function excludeIn(select, value) {
-      qsa(select, "option").forEach(function (o) {
-        var off = !!o.value && o.value === value;
-        o.disabled = off;
-        o.hidden = off;
-      });
-    }
-
-    function syncPair(type) {
-      if (!accountSelect || !targetSelect) return;
-      var isTransfer = type === "transfer";
-      excludeIn(targetSelect, isTransfer ? accountSelect.value : "");
-      excludeIn(accountSelect, isTransfer ? targetSelect.value : "");
+    function resetPairIfSame(changed, other) {
+      if (currentType(form) !== "transfer" || !changed || !other) return;
+      if (changed.value && changed.value === other.value) other.value = "";
     }
 
     // Категория обязательна для расхода со счёта «Текущий»
@@ -162,8 +151,13 @@
     }
 
     qsa(form, "[data-op-type]").forEach(function (r) { r.addEventListener("change", update); });
-    [accountSelect, targetSelect].forEach(function (sel) {
-      if (sel) sel.addEventListener("change", function () { update(); });
+    if (accountSelect) accountSelect.addEventListener("change", function () {
+      resetPairIfSame(accountSelect, targetSelect);
+      update();
+    });
+    if (targetSelect) targetSelect.addEventListener("change", function () {
+      resetPairIfSame(targetSelect, accountSelect);
+      update();
     });
     update();
   }

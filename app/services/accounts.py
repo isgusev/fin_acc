@@ -331,11 +331,10 @@ MONTHS_RU = [
 
 @dataclass(frozen=True)
 class ReplenishmentRow:
-    month: date  # первое число месяца
-    label: str  # «Октябрь 2026»
-    amount: Decimal  # пополнено за месяц
-    period_label: str  # «за месяц» / «за IV кв. с начала квартала» / ...
-    period_total: Decimal  # пополнено в периоде регулярности (с его начала по конец месяца)
+    start: date  # начало периода
+    end: date  # конец периода
+    label: str  # «Октябрь 2026» / «IV кв. 2026» / «2026 год»
+    amount: Decimal  # пополнено за период (по сегодняшний день)
     target: Decimal | None  # норма пополнения за период (None — регулярность не задана)
     percent: int | None
 
@@ -356,15 +355,44 @@ def _month_shift(d: date, delta: int) -> date:
     return date(idx // 12, idx % 12 + 1, 1)
 
 
+ROMAN_QUARTERS = ["I", "II", "III", "IV"]
+
+
+def _periods(period: ReplenishPeriod, today: date, months: int) -> list[tuple[date, date, str]]:
+    """Периоды регулярности, пересекающиеся с последними `months` месяцами (новые сверху).
+
+    Ежеквартально — кварталы, ежегодно — годы; ежемесячно, еженедельно и без
+    регулярности — месяцы.
+    """
+    current = date(today.year, today.month, 1)
+    window_start = _month_shift(current, -(months - 1))
+    out: list[tuple[date, date, str]] = []
+    if period == ReplenishPeriod.QUARTERLY:
+        q_start = date(today.year, (today.month - 1) // 3 * 3 + 1, 1)
+        while _month_shift(q_start, 3) > window_start:
+            q = (q_start.month - 1) // 3
+            end = _month_shift(q_start, 3) - timedelta(days=1)
+            out.append((q_start, end, f"{ROMAN_QUARTERS[q]} кв. {q_start.year}"))
+            q_start = _month_shift(q_start, -3)
+    elif period == ReplenishPeriod.YEARLY:
+        for year in range(today.year, window_start.year - 1, -1):
+            out.append((date(year, 1, 1), date(year, 12, 31), f"{year} год"))
+    else:
+        for i in range(months):
+            m = _month_shift(current, -i)
+            end = _month_shift(m, 1) - timedelta(days=1)
+            out.append((m, end, f"{MONTHS_RU[m.month - 1]} {m.year}"))
+    return out
+
+
 def replenishment_summary(
     db: Session, user: User, account: Account, today: date | None = None, months: int = 6
 ) -> list[ReplenishmentRow]:
-    """Пополнения по месяцам за последние `months` месяцев (новые сверху) и выполнение нормы.
+    """История пополнений за последние `months` месяцев с разбивкой по периодам регулярности.
 
-    Норма — «Сумма пополнения» за период регулярности: для ежемесячного пополнения
-    период — сам месяц, для ежеквартального — квартал (с его начала по конец месяца
-    строки), для ежегодного — год, для еженедельного — месяц с нормой
-    «сумма × дней в месяце / 7».
+    Ежемесячно — 6 строк-месяцев; ежеквартально — кварталы, попадающие в эти 6 месяцев
+    (в октябре — II, III и IV); ежегодно — годы; еженедельно — 6 месяцев с нормой
+    «сумма × дней в месяце / 7». Процент — пополнено за период / норма за период.
     """
     today = today or date.today()
     ops = [
@@ -373,40 +401,14 @@ def replenishment_summary(
         if not _is_reopen_transfer(o, account)
     ]
     period = account.replenish_period
-    current = date(today.year, today.month, 1)
     rows: list[ReplenishmentRow] = []
-    for i in range(months):
-        m = _month_shift(current, -i)
-        m_end = _month_shift(m, 1) - timedelta(days=1)
-        month_sum = sum((o.amount for o in ops if m <= o.op_date <= m_end), ZERO)
-
-        if period == ReplenishPeriod.QUARTERLY:
-            q = (m.month - 1) // 3
-            p_start = date(m.year, q * 3 + 1, 1)
-            p_label = f"за {['I', 'II', 'III', 'IV'][q]} кв. {m.year}"
-        elif period == ReplenishPeriod.YEARLY:
-            p_start = date(m.year, 1, 1)
-            p_label = f"за {m.year} год"
-        else:
-            p_start = m
-            p_label = "за месяц"
-        period_total = sum((o.amount for o in ops if p_start <= o.op_date <= m_end), ZERO)
-
+    for start, end, label in _periods(period, today, months):
+        amount = sum((o.amount for o in ops if start <= o.op_date <= end), ZERO)
         target: Decimal | None = None
         if period != ReplenishPeriod.NONE and account.replenish_amount:
             target = account.replenish_amount
             if period == ReplenishPeriod.WEEKLY:
-                target = money(target * Decimal(m_end.day) / Decimal(7))
-        percent = int((period_total * 100 / target).to_integral_value()) if target else None
-        rows.append(
-            ReplenishmentRow(
-                month=m,
-                label=f"{MONTHS_RU[m.month - 1]} {m.year}",
-                amount=month_sum,
-                period_label=p_label,
-                period_total=period_total,
-                target=target,
-                percent=percent,
-            )
-        )
+                target = money(target * Decimal(end.day) / Decimal(7))
+        percent = int((amount * 100 / target).to_integral_value()) if target else None
+        rows.append(ReplenishmentRow(start, end, label, amount, target, percent))
     return rows
