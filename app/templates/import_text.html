@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Импорт выписки{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Импорт выписки</h1>
+</div>
+<section class="card narrow">
+  <p class="muted">Скопируйте текст выписки Т-Банка (из PDF) целиком и вставьте ниже. На следующем шаге
+    появится таблица списаний для проверки; поступления и уже внесённые ранее операции будут пропущены.</p>
+  {{ m.form_error(f) }}
+  <form method="post" action="{{ f.action }}" novalidate>
+    {{ m.csrf() }}
+    <div class="field{% if f.errors.get('text') %} has-error{% endif %}">
+      <label for="f-text">Текст выписки <span class="req">*</span></label>
+      <textarea id="f-text" name="text" rows="16" class="mono" placeholder="Дата и время операции  Дата списания  Сумма …" autofocus>{{ f.v('text') }}</textarea>
+      {{ m.field_error(f, "text") }}
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Разобрать</button>
+      <a class="btn btn-ghost" href="/">Отмена</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

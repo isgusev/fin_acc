@@ -7,7 +7,13 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, aliased
 
 from app import schemas
-from app.errors import ConflictError, NotFoundError, ValidationAppError
+from app.errors import (
+    AppError,
+    ConflictError,
+    NotFoundError,
+    RowsValidationError,
+    ValidationAppError,
+)
 from app.models import (
     Account,
     AccountTypeCode,
@@ -151,6 +157,42 @@ def create_operation(db: Session, user: User, data: schemas.OperationIn) -> Oper
     return op
 
 
+def create_expenses_bulk(
+    db: Session,
+    user: User,
+    items: Sequence[tuple[schemas.OperationIn, str | None, str | None]],
+) -> list[Operation]:
+    """Создаёт расходы пачкой (импорт выписки) — всё или ничего.
+
+    items: (данные операции, описание из банка, номер карты). Ошибки собираются по всем
+    строкам сразу и выбрасываются одним RowsValidationError.
+    """
+    errors: dict[int, list[tuple[str | None, str]]] = {}
+    ops: list[Operation] = []
+    for i, (data, bank_description, bank_card) in enumerate(items):
+        if data.operation_type != OperationTypeCode.EXPENSE:
+            errors[i] = [("operation_type", "Импортируются только расходы")]
+            continue
+        try:
+            fields = _resolve(db, user, data)
+        except AppError as e:
+            errors[i] = [(e.field, e.message)]
+            continue
+        ops.append(
+            Operation(
+                owner_id=user.id,
+                bank_description=bank_description,
+                bank_card=bank_card,
+                **fields,
+            )
+        )
+    if errors:
+        raise RowsValidationError(errors)
+    db.add_all(ops)
+    db.commit()
+    return ops
+
+
 def update_operation(
     db: Session, user: User, op_id: uuid.UUID, data: schemas.OperationIn
 ) -> Operation:
@@ -218,6 +260,7 @@ def to_out(op: Operation) -> schemas.OperationOut:
         amount=op.amount,
         category_id=op.category_id,
         category_name=op.category.name if op.category else None,
+        bank_description=op.bank_description,
         comment=op.comment,
         plan_id=op.plan_id,
         created_at=op.created_at,

@@ -24,6 +24,23 @@ class ValidationAppError(AppError):
     status_code = 422
 
 
+class RowsValidationError(ValidationAppError):
+    """Ошибки в нескольких строках сразу (импорт): {номер строки: [(поле, сообщение)]}."""
+
+    def __init__(self, row_errors: dict[int, list[tuple[str | None, str]]]) -> None:
+        count = len(row_errors)
+        super().__init__(f"Исправьте ошибки в строках: {count}")
+        self.row_errors = row_errors
+
+    def to_dict(self) -> dict[str, Any]:
+        data = super().to_dict()
+        data["error"]["rows"] = {
+            str(i): [{"field": f, "message": m} for f, m in errs]
+            for i, errs in self.row_errors.items()
+        }
+        return data
+
+
 class NotFoundError(AppError):
     code = "NOT_FOUND"
     status_code = 404

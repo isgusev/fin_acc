@@ -6,6 +6,7 @@
   <h1>Главная</h1>
   <div class="actions">
     <a class="btn btn-primary" href="/operations/new?next={{ current_url|urlencode }}">Добавить операцию</a>
+    <a class="btn" href="/import">Импорт выписки</a>
     <a class="btn" href="/accounts/new">Создать счёт</a>
     {% if user.is_admin %}
       <a class="btn btn-ghost" href="/admin/holidays">Праздничные даты</a>

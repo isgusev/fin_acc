@@ -271,10 +271,33 @@
     update();
   }
 
+  /* ---------------------------------------------------------------- импорт выписки */
+
+  function initImportForm(form) {
+    var counter = form.querySelector("[data-rows-left]");
+    var submit = form.querySelector("button[type=submit]");
+
+    function refresh() {
+      var left = qsa(form, "[data-import-row]").length;
+      if (counter) counter.textContent = "Строк к сохранению: " + left;
+      if (submit) submit.disabled = left === 0;
+    }
+
+    form.addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-remove-row]");
+      if (!btn) return;
+      var row = btn.closest("[data-import-row]");
+      if (row) row.remove();
+      refresh();
+    });
+    refresh();
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     initCommon();
     qsa(document, "[data-op-form]").forEach(initOperationForm);
     qsa(document, "[data-plan-form]").forEach(initPlanForm);
     qsa(document, "[data-account-form]").forEach(initAccountForm);
+    qsa(document, "[data-import-form]").forEach(initImportForm);
   });
 })();

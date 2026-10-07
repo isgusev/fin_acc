@@ -249,6 +249,34 @@ class OperationIn(InModel):
     )(_empty_to_none)
 
 
+class ImportRowIn(InModel):
+    """Строка проверенной выписки → расход."""
+
+    op_date: date
+    amount: PositiveMoney
+    description: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=300)
+    ]
+    card: Annotated[str, StringConstraints(pattern=r"^\d{4}$")] | None = None
+    name: OptText200 = None
+    account_id: uuid.UUID | None = None
+    category_id: int | None = None
+    plan_id: uuid.UUID | None = None
+    comment: OptComment = None
+
+    _norm = field_validator(
+        "card", "name", "account_id", "category_id", "plan_id", "comment", mode="before"
+    )(_empty_to_none)
+
+
+class ImportTextIn(InModel):
+    text: Annotated[str, StringConstraints(max_length=500_000)]
+
+
+class ImportSaveIn(InModel):
+    rows: list[ImportRowIn] = Field(min_length=1, max_length=2000)
+
+
 class OperationOut(OutModel):
     id: uuid.UUID
     operation_type: OperationTypeOut
@@ -262,6 +290,7 @@ class OperationOut(OutModel):
     category_id: int | None
     category_name: str | None
     comment: str | None
+    bank_description: str | None = None
     plan_id: uuid.UUID | None
     created_at: datetime
     updated_at: datetime

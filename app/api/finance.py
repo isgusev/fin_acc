@@ -15,6 +15,7 @@ from app.services import accounts as accounts_svc
 from app.services import balances, references
 from app.services import operations as ops_svc
 from app.services import planning as plan_svc
+from app.services import statement_import as import_svc
 
 router = APIRouter(tags=["finance"])
 
@@ -259,3 +260,42 @@ def put_prior_income(
 ) -> schemas.PriorIncomeOut:
     plan_svc.set_prior_income(db, user, year, data.amount)
     return schemas.PriorIncomeOut(year=year, amount=plan_svc.get_prior_income(db, user, year))
+
+
+# ---------------------------------------------------------------- импорт выписки
+
+
+@router.post("/import/tbank/parse")
+def import_parse(
+    data: schemas.ImportTextIn, db: Session = Depends(get_db), user: User = Depends(current_user)
+) -> dict[str, object]:
+    """Разбор текста выписки Т-Банка: списания с подсказками (в БД ничего не пишется)."""
+    p = import_svc.prepare(db, user, data.text)
+    return {
+        "total": p.total_lines,
+        "skipped_income": p.skipped_income,
+        "skipped_duplicates": p.skipped_duplicates,
+        "unparsed": p.unparsed,
+        "rows": [
+            {
+                "op_date": r.op_date,
+                "amount": r.amount,
+                "description": r.description,
+                "card": r.card,
+                "suggested_name": r.suggestion.name,
+                "suggested_account_id": r.suggestion.account_id,
+                "suggested_category_id": r.suggestion.category_id,
+                "suggestion_source": r.suggestion.source,
+            }
+            for r in p.rows
+        ],
+    }
+
+
+@router.post("/import/save", response_model=list[schemas.OperationOut], status_code=201)
+def import_save(
+    data: schemas.ImportSaveIn, db: Session = Depends(get_db), user: User = Depends(current_user)
+) -> list[schemas.OperationOut]:
+    """Создаёт расходы по проверенным строкам выписки — все или ни одного."""
+    ops = import_svc.save(db, user, data.rows)
+    return [ops_svc.to_out(o) for o in ops]

@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Проверка выписки{% endblock %}
+{% block main_class %}main-wide{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Проверка выписки</h1>
+  <div class="actions"><a class="btn btn-ghost" href="/import">← Вставить другую выписку</a></div>
+</div>
+
+{% if info %}
+<section class="card">
+  <p class="muted">
+    Разобрано операций: <strong>{{ info.total }}</strong>. Списаний к внесению: <strong>{{ info.shown }}</strong>.
+    {% if info.income %}Поступлений пропущено: {{ info.income }}.{% endif %}
+    {% if info.duplicates %}Уже внесены ранее и пропущены: {{ info.duplicates }}.{% endif %}
+  </p>
+  {% if info.unparsed %}<div class="alert alert-warning">Не удалось разобрать записей: {{ info.unparsed }}. Проверьте, что выписка скопирована целиком.</div>{% endif %}
+</section>
+{% endif %}
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+{% if rows %}
+<form method="post" action="/import/save" novalidate data-import-form
+      data-confirm="Все изменения в выписку внесены? Пишем в базу?">
+  {{ m.csrf() }}
+  <section class="card">
+    <div class="table-wrap">
+      <table class="table table-compact import-table">
+        <thead>
+          <tr>
+            <th>Дата</th><th class="r">Сумма, ₽</th><th>Описание операции</th><th>Наименование <span class="req">*</span></th>
+            <th>Счёт <span class="req">*</span></th><th>Категория</th><th>Связь с планом</th><th>Комментарий</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for r in rows %}
+          {% set p = "rows-" ~ loop.index0 ~ "-" %}
+          <tr data-import-row class="{{ 'row-error' if r.errors else '' }}">
+            <td class="nowrap">
+              {{ r.op_date|ru_date_iso }}
+              {% for k in ("op_date", "amount", "description", "card", "source") %}<input type="hidden" name="{{ p ~ k }}" value="{{ r[k] }}">{% endfor %}
+            </td>
+            <td class="r nowrap">{{ r.amount|money_str }}</td>
+            <td class="import-desc">{{ r.description }}{% if r.card %}<div class="muted small">карта *{{ r.card }}</div>{% endif %}</td>
+            <td>
+              <input type="text" name="{{ p }}name" value="{{ r.name }}" maxlength="200" aria-label="Наименование">
+              {% if r.source %}<div class="muted small" title="Подставлено по прошлой операции">↺ как раньше ({{ r.source }})</div>{% endif %}
+              {% if r.errors.name %}<div class="field-error">{{ r.errors.name }}</div>{% endif %}
+            </td>
+            <td>
+              <select name="{{ p }}account_id" aria-label="Счёт">
+                <option value="">— выберите счёт —</option>
+                {% for a in accounts %}<option value="{{ a.id }}" {% if r.account_id == a.id|string %}selected{% endif %}>{{ a.name }}</option>{% endfor %}
+              </select>
+              {% if r.errors.account_id %}<div class="field-error">{{ r.errors.account_id }}</div>{% endif %}
+            </td>
+            <td>
+              <select name="{{ p }}category_id" aria-label="Категория">
+                <option value="">— без категории —</option>
+                {% for c in categories %}<option value="{{ c.id }}" {% if r.category_id == c.id|string %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+              </select>
+              {% if r.errors.category_id %}<div class="field-error">{{ r.errors.category_id }}</div>{% endif %}
+            </td>
+            <td>
+              <select name="{{ p }}plan_id" aria-label="Связь с планом">
+                <option value="">— без плана —</option>
+                {% for pl in plans %}<option value="{{ pl.id }}" {% if r.plan_id == pl.id|string %}selected{% endif %}>{{ pl|plan_label }}</option>{% endfor %}
+              </select>
+              {% if r.errors.plan_id %}<div class="field-error">{{ r.errors.plan_id }}</div>{% endif %}
+            </td>
+            <td>
+              <input type="text" name="{{ p }}comment" value="{{ r.comment }}" maxlength="2000" aria-label="Комментарий">
+              {% for k, msg in r.errors.items() if k not in ("name", "account_id", "category_id", "plan_id") %}<div class="field-error">{{ msg }}</div>{% endfor %}
+            </td>
+            <td><button type="button" class="btn btn-sm btn-ghost btn-danger" data-remove-row title="Удалить строку из выписки">Удалить</button></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="muted small">Удалённые строки не сохраняются. Для расходов со счёта с типом «Текущий» категория обязательна.</p>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Сохранить</button>
+      <a class="btn btn-ghost" href="/import">Отмена</a>
+      <span class="muted small" data-rows-left></span>
+    </div>
+  </section>
+</form>
+{% else %}
+<section class="card"><p class="empty">Новых списаний для внесения нет.</p></section>
+{% endif %}
+{% endblock %}
