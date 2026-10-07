@@ -31,6 +31,7 @@ from app.security import (
 )
 from app.services import accounts as accounts_svc
 from app.services import references
+from app.services.planning import check_advance_days
 
 INVALID_CREDENTIALS = "Неверный email или пароль"
 
@@ -142,6 +143,8 @@ def destroy_all_sessions(
 
 
 def update_profile(db: Session, user: User, data: schemas.ProfileIn) -> User:
+    if data.advance_day is not None:
+        check_advance_days(data.advance_day, data.salary_day, data.advance_calc_day)
     for k, v in data.model_dump().items():
         setattr(user, k, v)
     db.commit()

@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Учёт финансов{% endblock %} · Учёт финансов</title>
-  <link rel="stylesheet" href="/static/app.css">
-  <script src="/static/app.js" defer></script>
+  <link rel="stylesheet" href="/static/app.css?v={{ static_version }}">
+  <script src="/static/app.js?v={{ static_version }}" defer></script>
 </head>
 <body>
 {% import "_macros.html" as m with context %}

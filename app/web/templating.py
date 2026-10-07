@@ -1,5 +1,6 @@
 """Jinja2-шаблоны, фильтры форматирования и общий контекст страниц."""
 
+import hashlib
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -75,6 +76,19 @@ templates.env.filters["plan_label"] = plan_label
 templates.env.filters["ru_date"] = fmt_date
 templates.env.filters["period"] = fmt_period
 templates.env.globals["replenish_periods"] = list(REPLENISH_PERIOD_LABELS.items())
+
+
+def _static_version() -> str:
+    """Хеш содержимого статики: меняется при обновлении — браузер не берёт старый JS/CSS из кеша."""
+    h = hashlib.sha256()
+    for name in ("app.js", "app.css"):
+        path = STATIC_DIR / name
+        if path.exists():
+            h.update(path.read_bytes())
+    return h.hexdigest()[:12]
+
+
+templates.env.globals["static_version"] = _static_version()
 
 
 def render(

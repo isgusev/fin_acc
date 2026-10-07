@@ -297,6 +297,19 @@ class PlanningOut(OutModel):
 class SalaryCalcIn(InModel):
     start_date: date
     replace: bool = False
+    # Доход с начала года до начала учёта; если передан — сохраняется для года start_date
+    prior_income: NonNegMoney | None = None
+
+    _norm = field_validator("prior_income", mode="before")(_empty_to_none)
+
+
+class PriorIncomeIn(InModel):
+    amount: NonNegMoney
+
+
+class PriorIncomeOut(BaseModel):
+    year: int
+    amount: Decimal
 
 
 class SalaryCalcOut(BaseModel):

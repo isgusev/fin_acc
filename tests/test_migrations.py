@@ -63,7 +63,10 @@ def test_upgrade_downgrade_upgrade(migr_url, migr_engine):
 def test_step_by_step_downgrade(migr_url, migr_engine):
     cfg = alembic_config(migr_url)
     command.upgrade(cfg, "head")
-    command.downgrade(cfg, "-1")
+    # пошагово вниз до схемы без справочников (0001), проверяя каждый шаг
+    command.downgrade(cfg, "0002")
+    assert "prior_income" not in _tables(migr_engine)
+    command.downgrade(cfg, "0001")
     with migr_engine.connect() as conn:
         assert conn.execute(text("SELECT count(*) FROM account_types")).scalar() == 0
     command.upgrade(cfg, "head")

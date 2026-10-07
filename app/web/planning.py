@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import date
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
@@ -50,7 +51,13 @@ def _render_planning(
 ) -> Response:
     plans = plan_svc.plans_out(db, plan_svc.list_plans(db, user, year=year))
     default_start = date.today() if date.today().year == year else date(year, 1, 1)
-    salary_form = salary_form or FormState(values={"start_date": default_start.isoformat()})
+    prior_income = plan_svc.get_prior_income(db, user, year)
+    salary_form = salary_form or FormState(
+        values={
+            "start_date": default_start.isoformat(),
+            "prior_income": fmt_money_input(prior_income) if prior_income else "",
+        }
+    )
     profile_incomplete = not user.salary or user.salary_day is None
     return render(
         request,
@@ -61,6 +68,7 @@ def _render_planning(
             "totals": plan_svc.year_totals(db, user, year),
             "sf": salary_form,
             "profile_incomplete": profile_incomplete,
+            "prior_income": prior_income,
             "auto_tax_kinds": plan_svc.AUTO_TAX_KINDS,
         },
         status_code=status_code,
@@ -87,9 +95,21 @@ async def planning_salary(
     try:
         data = validate(
             schemas.SalaryCalcIn,
-            {"start_date": opt(values, "start_date"), "replace": checkbox(values, "replace")},
+            {
+                "start_date": opt(values, "start_date"),
+                "replace": checkbox(values, "replace"),
+                # пустое поле = дохода до начала учёта не было
+                "prior_income": norm_money(opt(values, "prior_income")) or "0",
+            },
         )
-        r = plan_svc.calculate_salary(db, user, data.start_date, data.replace)
+        prior = data.prior_income if data.prior_income is not None else Decimal("0")
+        if values.get("action") == "save_prior":
+            plan_svc.set_prior_income(db, user, data.start_date.year, prior)
+            return redirect(
+                f"/planning?year={data.start_date.year}",
+                flash="Доход до начала учёта сохранён, налоги плана пересчитаны",
+            )
+        r = plan_svc.calculate_salary(db, user, data.start_date, data.replace, data.prior_income)
     except (FormInvalid, AppError) as exc:
         db.rollback()
         f.apply(exc)

@@ -20,6 +20,7 @@
   <div class="stat"><div class="stat-label">Доходы (план)</div><div class="stat-value">{{ m.amount(totals.income) }} ₽</div></div>
   <div class="stat"><div class="stat-label">Доходы после налога</div><div class="stat-value">{{ m.amount(totals.income_net) }} ₽</div></div>
   <div class="stat"><div class="stat-label">Расходы (план)</div><div class="stat-value">{{ m.amount(totals.expense) }} ₽</div></div>
+  {% if prior_income %}<div class="stat"><div class="stat-label">Доход до начала учёта</div><div class="stat-value">{{ m.amount(prior_income) }} ₽</div></div>{% endif %}
   <div class="stat"><div class="stat-label">Сальдо</div><div class="stat-value">{{ m.amount(totals.income_net - totals.expense) }} ₽</div></div>
 </section>
 
@@ -77,14 +78,18 @@
   {% if profile_incomplete %}
     <div class="alert alert-warning">Для расчёта заполните в <a href="/profile">профиле</a> «Зарплату» и «Дату зарплаты» (а для аванса — «Дату аванса» и «Расчёт аванса»).</div>
   {% endif %}
-  <p class="muted">Создаёт записи «Доход · Зарплата» с указанной даты до конца её года. Налог рассчитывается по шкале автоматически.</p>
+  <p class="muted">Создаёт записи «Доход · Зарплата» с указанной даты до конца её года: аванс за текущий месяц и зарплату — если её дата раньше даты аванса, это остаток за предыдущий месяц (за декабрь — в январе следующего года). Налог рассчитывается по шкале автоматически.</p>
   {{ m.form_error(sf) }}
   <form method="post" action="/planning/salary" class="inline-fields" novalidate>
     {{ m.csrf() }}
     <input type="hidden" name="year" value="{{ year }}">
     {{ m.input(sf, "start_date", "Рассчитать плановую зарплату с", type="date", required=True) }}
+    {{ m.money_input(sf, "prior_income", "Доход с начала года до начала учёта, ₽", hint="Зарплата и премии, полученные в этом году до начала учёта. На счета не зачисляется — только увеличивает базу прогрессивной шкалы НДФЛ") }}
     {{ m.checkbox(sf, "replace", "Заменить", hint="Пересоздать уже существующие записи зарплаты (кроме связанных с операциями)") }}
-    <div class="form-actions"><button type="submit" class="btn btn-primary">Рассчитать</button></div>
+    <div class="form-actions">
+      <button type="submit" name="action" value="calculate" class="btn btn-primary">Рассчитать</button>
+      <button type="submit" name="action" value="save_prior" class="btn">Только сохранить доход до начала учёта</button>
+    </div>
   </form>
 </section>
 {% endblock %}
