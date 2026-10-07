@@ -118,12 +118,6 @@
       if (empty) empty.textContent = type === "income" ? "— выберите план дохода —" : "— без плана —";
     }
 
-    // код вида дохода при открытии формы: у сохранённой премии галочку не трогаем
-    var lastCode = (function () {
-      var o = selectedKind();
-      return o ? o.getAttribute("data-code") : "";
-    })();
-
     function update() {
       var type = currentType(form);
       applyShowFor(form, type);
