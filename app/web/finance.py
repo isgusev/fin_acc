@@ -63,11 +63,14 @@ def dashboard(
     next_url = page_url(flt.offset + PAGE_SIZE) if flt.offset + PAGE_SIZE < total else None
 
     all_accounts = accounts_svc.list_accounts(db, user)
+    type_balances = balances.balances_by_type(db, user.id)
     return render(
         request,
         "dashboard.html",
         {
-            "type_balances": balances.balances_by_type(db, user.id),
+            "type_balances": type_balances,
+            # столько же строк, сколько в сводном балансе (таблицы стоят рядом)
+            "upcoming": plan_svc.upcoming_expenses(db, user, limit=len(type_balances)),
             "ops": ops,
             "total": total,
             "offset": flt.offset,
