@@ -465,3 +465,66 @@ def test_salary_calc_base_includes_bonus(db, user, refs):
     set_profile(db, user, salary=D("100000"), salary_day=10)
     plan_svc.calculate_salary(db, user, date(2026, 1, 1), False)
     assert all(p.tax_rate == D("15") for p in salary_plans(db, user))
+
+
+# ---------------------------------------------------------------- пример из ТЗ: ноябрь 2026
+
+
+def test_salary_split_november_2026_example(db, user):
+    """Ноябрь 2026: 21 будний день − 04.11 = 20 рабочих; до 15-го включительно 10 − 1 = 9.
+    Зарплата 100 000: аванс = 100000 / 20 × 9 = 45 000, зарплата = 100000 / 20 × 11 = 55 000."""
+    set_profile(db, user, salary="100000", advance_day=20, salary_day=28, advance_calc_day=15)
+    plan_svc.calculate_salary(db, user, date(2026, 11, 1), False)
+    nov = {
+        p.planned_date: p.amount_planned
+        for p in salary_plans(db, user)
+        if p.planned_date.month == 11
+    }
+    assert nov == {date(2026, 11, 20): D("45000.00"), date(2026, 11, 28): D("55000.00")}
+
+
+# ---------------------------------------------------------------- доход до начала учёта
+
+
+def test_prior_income_default_zero(db, user):
+    assert plan_svc.get_prior_income(db, user, 2026) == D("0")
+
+
+def test_prior_income_shifts_progressive_base(db, user):
+    """База 2 350 000 до начала учёта: аванс 45 000 целиком по 13 %,
+    из зарплаты 55 000 — 5 000 по 13 % и 50 000 по 15 %."""
+    set_profile(db, user, salary="100000", advance_day=20, salary_day=28, advance_calc_day=15)
+    plan_svc.calculate_salary(db, user, date(2026, 11, 1), False, prior_income=D("2350000"))
+    assert plan_svc.get_prior_income(db, user, 2026) == D("2350000.00")
+    by_date = {p.planned_date: p for p in salary_plans(db, user)}
+    adv, pay = by_date[date(2026, 11, 20)], by_date[date(2026, 11, 28)]
+    assert (adv.tax_rate, adv.amount_net) == (D("13.00"), D("39150.00"))
+    assert (pay.tax_rate, pay.amount_net) == (D("15.00"), D("46850.00"))  # 55000 − 650 − 7500
+
+
+def test_set_prior_income_recomputes_existing_plans(db, user):
+    set_profile(db, user, salary="100000", salary_day=28)
+    plan_svc.calculate_salary(db, user, date(2026, 12, 1), False)
+    (dec,) = salary_plans(db, user)
+    assert dec.tax_rate == D("13.00")
+
+    plan_svc.set_prior_income(db, user, 2026, D("2400000"))
+    db.refresh(dec)
+    assert (dec.tax_rate, dec.amount_net) == (D("15.00"), D("85000.00"))
+
+    plan_svc.set_prior_income(db, user, 2026, D("0"))  # обновление существующей записи
+    db.refresh(dec)
+    assert dec.tax_rate == D("13.00")
+
+
+def test_prior_income_is_per_year_and_per_user(db, user, other_user):
+    plan_svc.set_prior_income(db, user, 2026, D("500000"))
+    assert plan_svc.get_prior_income(db, user, 2025) == D("0")
+    assert plan_svc.get_prior_income(db, other_user, 2026) == D("0")
+
+
+def test_calculate_salary_without_prior_income_keeps_saved_value(db, user):
+    set_profile(db, user, salary="100000", salary_day=28)
+    plan_svc.set_prior_income(db, user, 2026, D("700000"))
+    plan_svc.calculate_salary(db, user, date(2026, 12, 1), True)
+    assert plan_svc.get_prior_income(db, user, 2026) == D("700000.00")

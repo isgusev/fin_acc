@@ -648,3 +648,17 @@ def test_reopen_fund_via_api(user_client):
     assert c.get(f"{API}/accounts/{fund['id']}").json()["is_closed"] is True
     r = c.post(f"{API}/accounts/{cur['id']}/reopen")
     assert_error(r, 422, "VALIDATION_ERROR")
+
+
+def test_prior_income_api(user_client, other_client):
+    url = f"{API}/planning/prior-income/2026"
+    assert user_client.get(url).json() == {"year": 2026, "amount": "0.00"}
+    r = user_client.put(url, json={"amount": "123456.78"})
+    assert r.status_code == 200
+    assert r.json()["amount"] == "123456.78"
+    # у другого пользователя своё значение
+    assert other_client.get(url).json()["amount"] == "0.00"
+    assert_error(user_client.put(url, json={"amount": "-1"}), 422, "VALIDATION_ERROR", "amount")
+    assert_error(
+        user_client.get(f"{API}/planning/prior-income/1999"), 422, "VALIDATION_ERROR", "year"
+    )

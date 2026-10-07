@@ -23,6 +23,7 @@ from sqlalchemy import (
     SmallInteger,
     String,
     Text,
+    UniqueConstraint,
     func,
     text,
 )
@@ -353,3 +354,25 @@ class Operation(TimestampMixin, Base):
         foreign_keys=[target_account_id], lazy="joined"
     )
     plan: Mapped[Planning | None] = relationship(lazy="joined")
+
+
+class PriorIncome(TimestampMixin, Base):
+    """Доход с начала года до начала учёта в приложении (зарплата и премии).
+
+    На счета не зачисляется — учитывается только как начальная база прогрессивной
+    шкалы НДФЛ за этот год.
+    """
+
+    __tablename__ = "prior_income"
+    __table_args__ = (
+        CheckConstraint("amount >= 0", name="ck_prior_income_nonneg"),
+        CheckConstraint("year BETWEEN 2000 AND 2100", name="ck_prior_income_year"),
+        UniqueConstraint("owner_id", "year", name="uq_prior_income_owner_year"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    year: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(MONEY, nullable=False)

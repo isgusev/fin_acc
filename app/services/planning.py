@@ -18,6 +18,7 @@ from app.models import (
     OperationType,
     OperationTypeCode,
     Planning,
+    PriorIncome,
     User,
 )
 from app.services import accounts as accounts_svc
@@ -100,11 +101,38 @@ def plans_out(db: Session, plans: Sequence[Planning]) -> list[schemas.PlanningOu
 # ---------------------------------------------------------------- налоги
 
 
+def get_prior_income(db: Session, user: User, year: int) -> Decimal:
+    """Доход с начала года до начала учёта (0, если не указан)."""
+    amount = db.scalar(
+        select(PriorIncome.amount).where(PriorIncome.owner_id == user.id, PriorIncome.year == year)
+    )
+    return amount if amount is not None else ZERO
+
+
+def _upsert_prior_income(db: Session, user: User, year: int, amount: Decimal) -> None:
+    row = db.scalar(
+        select(PriorIncome).where(PriorIncome.owner_id == user.id, PriorIncome.year == year)
+    )
+    if row is None:
+        db.add(PriorIncome(owner_id=user.id, year=year, amount=amount))
+    else:
+        row.amount = amount
+    db.flush()
+
+
+def set_prior_income(db: Session, user: User, year: int, amount: Decimal) -> None:
+    """Сохраняет доход до начала учёта и пересчитывает налоги плана за этот год."""
+    _upsert_prior_income(db, user, year, amount)
+    recompute_year_taxes(db, user, year)
+    db.commit()
+
+
 def recompute_year_taxes(db: Session, user: User, year: int) -> None:
     """Пересчитывает ставку и «Сумму за вычетом налога» у зарплаты и премий за год.
 
-    База для прогрессивной шкалы — сумма «Сумма план» всех предыдущих (по дате) записей
-    с типом «Доход» и видом «Зарплата» или «Премия» за тот же календарный год.
+    База для прогрессивной шкалы = доход с начала года до начала учёта
+    + «Сумма план» всех предыдущих (по дате) записей с типом «Доход» и видом
+    «Зарплата» или «Премия» за тот же календарный год.
     """
     scale = references.tax_scale(db)
     plans = db.scalars(
@@ -117,7 +145,7 @@ def recompute_year_taxes(db: Session, user: User, year: int) -> None:
         )
         .order_by(Planning.planned_date, Planning.created_at, Planning.id)
     ).all()
-    base = ZERO
+    base = get_prior_income(db, user, year)
     for p in plans:
         if p.is_taxable:
             r = progressive_tax(base, p.amount_planned, scale)
@@ -261,7 +289,13 @@ class SalaryCalcResult:
     skipped: int
 
 
-def calculate_salary(db: Session, user: User, start_date: date, replace: bool) -> SalaryCalcResult:
+def calculate_salary(
+    db: Session,
+    user: User,
+    start_date: date,
+    replace: bool,
+    prior_income: Decimal | None = None,
+) -> SalaryCalcResult:
     """«Рассчитать плановую зарплату с <дата>» — до конца календарного года.
 
     Без аванса: одна запись в месяц на «Дату зарплаты» на всю сумму.
@@ -270,6 +304,8 @@ def calculate_salary(db: Session, user: User, start_date: date, replace: bool) -
     replace=False — даты, на которые уже есть плановая зарплата, пропускаются.
     replace=True — существующие записи зарплаты в периоде удаляются и создаются заново
     (кроме уже связанных с фактическими операциями: они сохраняются).
+    prior_income — доход с начала года до начала учёта; если передан, сохраняется
+    для года start_date и учитывается в базе прогрессивной шкалы.
     """
     if user.salary_day is None:
         raise ValidationAppError("Заполните «Дату зарплаты» в профиле", "salary_day")
@@ -282,6 +318,8 @@ def calculate_salary(db: Session, user: User, start_date: date, replace: bool) -
 
     year = start_date.year
     end_date = date(year, 12, 31)
+    if prior_income is not None:
+        _upsert_prior_income(db, user, year, prior_income)
     salary = user.salary
     holidays = holiday_dates(references.holiday_ranges_for_year(db, year))
     income = references.operation_type_by_code(db, OperationTypeCode.INCOME.value)

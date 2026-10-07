@@ -4,7 +4,7 @@ import uuid
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Path, Query
 from sqlalchemy.orm import Session
 
 from app import schemas
@@ -227,10 +227,31 @@ def delete_plan(
 def calculate_salary(
     data: schemas.SalaryCalcIn, db: Session = Depends(get_db), user: User = Depends(current_user)
 ) -> schemas.SalaryCalcOut:
-    r = plan_svc.calculate_salary(db, user, data.start_date, data.replace)
+    r = plan_svc.calculate_salary(db, user, data.start_date, data.replace, data.prior_income)
     return schemas.SalaryCalcOut(
         created=len(r.created),
         replaced=r.replaced,
         skipped=r.skipped,
         plans=plan_svc.plans_out(db, r.created),
     )
+
+
+@router.get("/planning/prior-income/{year}", response_model=schemas.PriorIncomeOut)
+def get_prior_income(
+    year: int = Path(ge=2000, le=2100),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> schemas.PriorIncomeOut:
+    """Доход с начала года до начала учёта (база прогрессивной шкалы НДФЛ)."""
+    return schemas.PriorIncomeOut(year=year, amount=plan_svc.get_prior_income(db, user, year))
+
+
+@router.put("/planning/prior-income/{year}", response_model=schemas.PriorIncomeOut)
+def put_prior_income(
+    data: schemas.PriorIncomeIn,
+    year: int = Path(ge=2000, le=2100),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> schemas.PriorIncomeOut:
+    plan_svc.set_prior_income(db, user, year, data.amount)
+    return schemas.PriorIncomeOut(year=year, amount=plan_svc.get_prior_income(db, user, year))
