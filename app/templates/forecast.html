@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m with context %}
+{% block title %}Прогноз{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Прогноз накоплений</h1>
+</div>
+
+<section class="card">
+  <p class="muted">
+    Старт — текущий остаток на счетах «Накопления»: <strong>{{ m.amount(fc.start_balance) }} ₽</strong>.
+    Каждый месяц прибавляются плановые доходы (после налога), вычитаются отчисления в фонды и на
+    ежемесячные траты по их планам пополнения и плановые расходы из накоплений (источник —
+    «Накопления» или не указан). В текущем месяце — только то, что ещё не внесено фактом;
+    просроченные планы без факта считаются предстоящими.
+  </p>
+  <div class="table-wrap">
+    <table class="table table-compact forecast-table">
+      <thead>
+        <tr>
+          <th>Месяц</th><th class="r">Доходы, ₽</th><th class="r">В фонды, ₽</th>
+          <th class="r">На ежемесячные траты, ₽</th><th class="r">Расходы из накоплений, ₽</th>
+          <th class="r">Изменение, ₽</th><th class="r">Накопления на конец месяца, ₽</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in fc.rows %}
+        <tr class="{{ 'row-current' if r.is_current else '' }}{{ ' row-no-income' if r.after_last_income else '' }}">
+          <td class="nowrap">{{ r.label }}{% if r.is_current %} <span class="muted small">(остаток месяца)</span>{% endif %}</td>
+          <td class="r">{{ m.amount(r.income) }}</td>
+          <td class="r">{{ m.amount(-r.to_funds) if r.to_funds else m.amount(r.to_funds) }}</td>
+          <td class="r">{{ m.amount(-r.to_monthly) if r.to_monthly else m.amount(r.to_monthly) }}</td>
+          <td class="r">{{ m.amount(-r.expenses) if r.expenses else m.amount(r.expenses) }}</td>
+          <td class="r">{{ m.amount(r.change) }}</td>
+          <td class="r"><strong>{{ m.amount(r.balance) }}</strong></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if fc.last_income_month %}
+    {% set after = fc.rows|selectattr("after_last_income")|list %}
+    {% if after %}
+    <p class="muted small">Плановые доходы заканчиваются в {{ fc.last_income_month|ru_month }}: в последующих месяцах
+      (отмечены бледнее) доходов в плане нет — <a href="/planning">рассчитайте плановую зарплату</a> на следующий год.</p>
+    {% endif %}
+  {% else %}
+    <p class="muted small">Плановых доходов нет — <a href="/planning">запланируйте доходы</a>, чтобы прогноз был полным.</p>
+  {% endif %}
+</section>
+{% endblock %}

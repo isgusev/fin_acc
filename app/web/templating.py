@@ -84,7 +84,27 @@ def fmt_money_str(v: str) -> str:
         return v
 
 
+def fmt_month(v: date) -> str:
+    """date(2026, 12, 1) → «декабре 2026» (предложный падеж для «в …»)."""
+    names = [
+        "январе",
+        "феврале",
+        "марте",
+        "апреле",
+        "мае",
+        "июне",
+        "июле",
+        "августе",
+        "сентябре",
+        "октябре",
+        "ноябре",
+        "декабре",
+    ]
+    return f"{names[v.month - 1]} {v.year}"
+
+
 templates.env.filters["money"] = fmt_money
+templates.env.filters["ru_month"] = fmt_month
 templates.env.filters["ru_date_iso"] = fmt_date_iso
 templates.env.filters["money_str"] = fmt_money_str
 templates.env.filters["money_input"] = fmt_money_input

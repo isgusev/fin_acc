@@ -31,6 +31,10 @@
       </tfoot>
     </table>
   </div>
+  {% if forecast_year_end %}
+  <p class="muted small forecast-line">Прогноз накоплений на 31.12.{{ forecast_year_end.month.year }}:
+    <strong>{{ m.amount(forecast_year_end.balance) }} ₽</strong> · <a href="/forecast">подробнее</a></p>
+  {% endif %}
 </section>
 
 <section class="card">

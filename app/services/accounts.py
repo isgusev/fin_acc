@@ -410,7 +410,7 @@ class ReplenishmentRow:
     plan_change: PlanChange | None = None
 
 
-def _is_reopen_transfer(op: Operation, account: Account) -> bool:
+def is_reopen_transfer(op: Operation, account: Account) -> bool:
     """Перенос остатка при «Открыть заново» — не пополнение."""
     src = op.account
     return (
@@ -421,7 +421,7 @@ def _is_reopen_transfer(op: Operation, account: Account) -> bool:
     )
 
 
-def _month_shift(d: date, delta: int) -> date:
+def month_shift(d: date, delta: int) -> date:
     idx = d.year * 12 + d.month - 1 + delta
     return date(idx // 12, idx % 12 + 1, 1)
 
@@ -436,22 +436,22 @@ def _periods(period: ReplenishPeriod, today: date, months: int) -> list[tuple[da
     регулярности — месяцы.
     """
     current = date(today.year, today.month, 1)
-    window_start = _month_shift(current, -(months - 1))
+    window_start = month_shift(current, -(months - 1))
     out: list[tuple[date, date, str]] = []
     if period == ReplenishPeriod.QUARTERLY:
         q_start = date(today.year, (today.month - 1) // 3 * 3 + 1, 1)
-        while _month_shift(q_start, 3) > window_start:
+        while month_shift(q_start, 3) > window_start:
             q = (q_start.month - 1) // 3
-            end = _month_shift(q_start, 3) - timedelta(days=1)
+            end = month_shift(q_start, 3) - timedelta(days=1)
             out.append((q_start, end, f"{ROMAN_QUARTERS[q]} кв. {q_start.year}"))
-            q_start = _month_shift(q_start, -3)
+            q_start = month_shift(q_start, -3)
     elif period == ReplenishPeriod.YEARLY:
         for year in range(today.year, window_start.year - 1, -1):
             out.append((date(year, 1, 1), date(year, 12, 31), f"{year} год"))
     else:
         for i in range(months):
-            m = _month_shift(current, -i)
-            end = _month_shift(m, 1) - timedelta(days=1)
+            m = month_shift(current, -i)
+            end = month_shift(m, 1) - timedelta(days=1)
             out.append((m, end, f"{MONTHS_RU[m.month - 1]} {m.year}"))
     return out
 
@@ -461,7 +461,11 @@ def _months_in(start: date, end: date) -> int:
 
 
 def period_norm(
-    period: ReplenishPeriod, amount: Decimal | None, start: date, end: date
+    period: ReplenishPeriod,
+    amount: Decimal | None,
+    start: date,
+    end: date,
+    rounded: bool = True,
 ) -> Decimal | None:
     """Норма пополнения за [start, end] по плану «amount раз в period».
 
@@ -472,8 +476,11 @@ def period_norm(
         return None
     if period == ReplenishPeriod.WEEKLY:
         days = (end - start).days + 1
-        return money(amount * Decimal(days) / Decimal(7))
-    return money(amount * Decimal(_months_in(start, end)) / PERIOD_MONTHS[period])
+        norm = amount * Decimal(days) / Decimal(7)
+    else:
+        norm = amount * Decimal(_months_in(start, end)) / PERIOD_MONTHS[period]
+    # без округления — для сумм за много месяцев (иначе 5000/3 × 3 даёт 5000,01)
+    return money(norm) if rounded else norm
 
 
 def replenishment_summary(
@@ -488,9 +495,7 @@ def replenishment_summary(
     """
     today = today or date.today()
     ops = [
-        o
-        for o in replenishment_history(db, user, account.id)
-        if not _is_reopen_transfer(o, account)
+        o for o in replenishment_history(db, user, account.id) if not is_reopen_transfer(o, account)
     ]
     plans = replenish_plans(db, account.id)
     if not plans:  # подстраховка: счёт без истории планов
@@ -561,7 +566,7 @@ def month_overview(
     """
     today = today or date.today()
     start = date(today.year, today.month, 1)
-    end = _month_shift(start, 1) - timedelta(days=1)
+    end = month_shift(start, 1) - timedelta(days=1)
     rows: list[MonthAccountRow] = []
     total_repl = total_exp = ZERO
     for a in accounts:
@@ -570,7 +575,7 @@ def month_overview(
             (
                 o.amount
                 for o in replenishment_history(db, user, acc.id)
-                if start <= o.op_date <= end and not _is_reopen_transfer(o, acc)
+                if start <= o.op_date <= end and not is_reopen_transfer(o, acc)
             ),
             ZERO,
         )

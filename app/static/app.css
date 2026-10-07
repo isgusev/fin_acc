@@ -330,3 +330,7 @@ textarea.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; fon
 .grid-halves + .card { margin-top: 16px; }
 @media (max-width: 900px) { .grid-halves { grid-template-columns: 1fr; } }
 .badge-warn { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
+
+/* Прогноз */
+.forecast-table .row-current td { background: var(--primary-soft); }
+.forecast-table .row-no-income td { opacity: 0.6; }
