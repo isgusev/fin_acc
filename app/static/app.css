@@ -312,3 +312,12 @@ input:disabled, select:disabled { background: var(--surface-2); color: var(--mut
 .nav-user { color: inherit; text-decoration: none; }
 a.nav-user:hover { text-decoration: underline; }
 a.nav-user.active { font-weight: 600; }
+
+/* Импорт выписки */
+.import-table td { vertical-align: top; }
+.main.main-wide { max-width: 1680px; }
+.import-table input[type=text], .import-table select { width: 100%; min-width: 120px; }
+.import-table td, .import-table th { padding-left: 6px; padding-right: 6px; }
+.import-desc { min-width: 180px; max-width: 280px; }
+.row-error td { background: color-mix(in srgb, var(--danger) 8%, transparent); }
+textarea.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }

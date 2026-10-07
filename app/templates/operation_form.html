@@ -71,6 +71,9 @@
     {% if not plans %}<p class="hint" data-show-for="income">Нет записей планирования — сначала <a href="/planning/new">запланируйте доход</a>.</p>{% endif %}
 
     {{ m.textarea(f, "comment", "Комментарий", rows=2) }}
+    {% if op and op.bank_description %}
+    <p class="muted small">Описание в банке: {{ op.bank_description }}{% if op.bank_card %} · карта *{{ op.bank_card }}{% endif %}</p>
+    {% endif %}
 
     <div class="form-actions">
       <button type="submit" class="btn btn-primary">Сохранить</button>

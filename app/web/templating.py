@@ -69,7 +69,24 @@ def plan_label(p: Any) -> str:
     return f"{fmt_date(p.planned_date)} · {title} · {fmt_money(p.amount_planned)}"
 
 
+def fmt_date_iso(v: str) -> str:
+    """«2026-09-28» → «28.09.2026» (значения скрытых полей формы — строки)."""
+    try:
+        return fmt_date(date.fromisoformat(v))
+    except (TypeError, ValueError):
+        return v
+
+
+def fmt_money_str(v: str) -> str:
+    try:
+        return fmt_money(Decimal(v))
+    except (ArithmeticError, TypeError, ValueError):
+        return v
+
+
 templates.env.filters["money"] = fmt_money
+templates.env.filters["ru_date_iso"] = fmt_date_iso
+templates.env.filters["money_str"] = fmt_money_str
 templates.env.filters["money_input"] = fmt_money_input
 templates.env.filters["rate"] = fmt_rate
 templates.env.filters["plan_label"] = plan_label

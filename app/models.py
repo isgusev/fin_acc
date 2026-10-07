@@ -366,6 +366,10 @@ class Operation(TimestampMixin, Base):
     plan_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("planning.id", ondelete="RESTRICT")
     )
+    # Исходные данные строки банковской выписки (для операций, внесённых импортом).
+    # По ним при следующем импорте подсказываются наименование, счёт и категория.
+    bank_description: Mapped[str | None] = mapped_column(String(300))
+    bank_card: Mapped[str | None] = mapped_column(String(8))
 
     operation_type: Mapped[OperationType] = relationship(lazy="joined")
     account: Mapped[Account] = relationship(foreign_keys=[account_id], lazy="joined")
