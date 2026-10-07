@@ -15,6 +15,7 @@
   </div>
 </div>
 
+<div class="grid-halves">
 <section class="card">
   <h2>Сводный баланс по типам счетов</h2>
   <div class="table-wrap">
@@ -30,7 +31,39 @@
       </tfoot>
     </table>
   </div>
+  {% if forecast_year_end %}
+  <p class="muted small forecast-line">Прогноз накоплений на 31.12.{{ forecast_year_end.month.year }}:
+    <strong>{{ m.amount(forecast_year_end.balance) }} ₽</strong> · <a href="/forecast">подробнее</a></p>
+  {% endif %}
 </section>
+
+<section class="card">
+  <div class="card-head">
+    <h2>Ближайшие запланированные траты</h2>
+    <a class="small" href="/planning">Все планы</a>
+  </div>
+  {% if upcoming %}
+  <div class="table-wrap">
+    <table class="table table-compact">
+      <thead><tr><th>Дата</th><th>Наименование</th><th class="r">Сумма, ₽</th><th></th></tr></thead>
+      <tbody>
+      {% for p in upcoming %}
+        {% set overdue = p.planned_date < today %}
+        <tr class="{{ 'row-overdue' if overdue else '' }}">
+          <td class="nowrap">{{ p.planned_date|ru_date }}{% if overdue %} <span class="badge badge-warn" title="Дата прошла, факта нет">просрочено</span>{% endif %}</td>
+          <td>{{ p.name or "—" }}{% if p.funding_account %}<div class="muted small">из «{{ p.funding_account.name }}»</div>{% endif %}</td>
+          <td class="r nowrap">{{ m.amount(p.amount_planned) }}</td>
+          <td class="actions-col"><a class="btn btn-sm btn-ghost" href="/operations/new?plan_id={{ p.id }}&amp;next={{ current_url|urlencode }}" title="Внести фактический расход по плану">Факт</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="empty">Запланированных трат без факта нет. <a href="/planning/new">Запланировать</a></p>
+  {% endif %}
+</section>
+</div>
 
 <section class="card" id="operations">
   <div class="card-head">

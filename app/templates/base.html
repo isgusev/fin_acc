@@ -16,7 +16,7 @@
     <button class="nav-toggle" type="button" data-nav-toggle aria-controls="main-nav" aria-expanded="false" aria-label="Меню">☰</button>
     <nav class="nav" id="main-nav">
       {% if not user.must_change_password %}
-      {% set items = [("/", "Главная"), ("/monthly", "Ежемесячные траты"), ("/funds", "Фонды"), ("/planning", "Планирование"), ("/import", "Импорт выписки")] %}
+      {% set items = [("/", "Главная"), ("/monthly", "Ежемесячные траты"), ("/funds", "Фонды"), ("/planning", "Планирование"), ("/forecast", "Прогноз")] %}
       {% for href, label in items %}
         <a href="{{ href }}" class="{{ 'active' if (path == href or (href != '/' and path.startswith(href))) else '' }}">{{ label }}</a>
       {% endfor %}

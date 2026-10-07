@@ -649,3 +649,31 @@ def test_mid_year_bonus_recomputes_later_payments_only(db, user, refs):
 
     plan_svc.delete_plan(db, user, bonus.id)  # удаление премии возвращает прежние ставки
     assert rates() == before
+
+
+# ---------------------------------------------------------------- ближайшие траты (главная)
+
+
+def test_upcoming_expenses_without_fact_sorted_and_limited(db, user, make):
+    acc = make.account(user, "monthly")
+    overdue = make.expense_plan(user, "100", on=date(2026, 1, 5), name="Просрочено")
+    soon = make.expense_plan(user, "200", on=date(2026, 2, 1), name="Скоро")
+    later = make.expense_plan(user, "300", on=date(2026, 3, 1), name="Позже")
+    done = make.expense_plan(user, "400", on=date(2026, 1, 1), name="Оплачено")
+    make.expense(user, acc, "400", plan_id=done.id)  # есть факт — не показываем
+    make.income_plan(user, on=date(2026, 1, 2))  # доходы не показываем
+
+    got = plan_svc.upcoming_expenses(db, user, limit=10)
+    assert [p.id for p in got] == [overdue.id, soon.id, later.id]
+    assert [p.id for p in plan_svc.upcoming_expenses(db, user, limit=2)] == [overdue.id, soon.id]
+    assert plan_svc.upcoming_expenses(db, user, limit=0) == []
+
+
+def test_dashboard_upcoming_block_and_nav(user_client, user, make):
+    make.expense_plan(user, "1500", on=date(2026, 1, 5), name="Шиномонтаж")
+    html = user_client.get("/").text
+    assert "Ближайшие запланированные траты" in html and "Шиномонтаж" in html
+    assert "просрочено" in html  # дата в прошлом, факта нет
+    nav = html.split('id="main-nav"')[1].split("</nav>")[0]
+    assert "/import" not in nav  # импорт — только кнопкой на главной
+    assert 'href="/import"' in html

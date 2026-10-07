@@ -18,6 +18,7 @@ from app.errors import AppError, ConflictError, NotFoundError
 from app.models import AccountTypeCode, Operation, OperationTypeCode, User
 from app.services import accounts as accounts_svc
 from app.services import balances, references
+from app.services import forecast as forecast_svc
 from app.services import operations as ops_svc
 from app.services import planning as plan_svc
 from app.web.forms import FormInvalid, FormState, form_values, norm_money, opt, safe_next, validate
@@ -34,6 +35,13 @@ async def _form(request: Request) -> dict[str, str]:
 
 
 # ---------------------------------------------------------------- главный экран
+
+
+def _year_end_forecast(db: Session, user: User) -> Any:
+    """Строка прогноза накоплений на конец текущего года для главной."""
+    fc = forecast_svc.build(db, user)
+    december = [r for r in fc.rows if r.month.month == 12]
+    return december[0] if december else None
 
 
 @router.get("/")
@@ -63,11 +71,15 @@ def dashboard(
     next_url = page_url(flt.offset + PAGE_SIZE) if flt.offset + PAGE_SIZE < total else None
 
     all_accounts = accounts_svc.list_accounts(db, user)
+    type_balances = balances.balances_by_type(db, user.id)
     return render(
         request,
         "dashboard.html",
         {
-            "type_balances": balances.balances_by_type(db, user.id),
+            "type_balances": type_balances,
+            # столько же строк, сколько в сводном балансе (таблицы стоят рядом)
+            "upcoming": plan_svc.upcoming_expenses(db, user, limit=len(type_balances)),
+            "forecast_year_end": _year_end_forecast(db, user),
             "ops": ops,
             "total": total,
             "offset": flt.offset,

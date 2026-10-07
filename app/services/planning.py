@@ -468,3 +468,23 @@ def year_totals(db: Session, user: User, year: int) -> dict[str, Decimal]:
         elif code == OperationTypeCode.EXPENSE.value:
             out["expense"] = Decimal(total)
     return out
+
+
+def upcoming_expenses(db: Session, user: User, limit: int) -> Sequence[Planning]:
+    """Ближайшие плановые расходы без факта (без связанных операций), включая просроченные.
+
+    Сортировка по дате: сначала просроченные, затем ближайшие будущие.
+    """
+    if limit <= 0:
+        return []
+    return db.scalars(
+        select(Planning)
+        .join(OperationType, OperationType.id == Planning.operation_type_id)
+        .where(
+            Planning.owner_id == user.id,
+            OperationType.code == OperationTypeCode.EXPENSE.value,
+            ~exists().where(Operation.plan_id == Planning.id),
+        )
+        .order_by(Planning.planned_date, Planning.created_at)
+        .limit(limit)
+    ).all()

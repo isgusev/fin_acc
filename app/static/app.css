@@ -323,3 +323,14 @@ a.nav-user.active { font-weight: 600; }
 textarea.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
 .plan-change { margin-top: 2px; font-style: italic; }
 .total-row td { border-top: 2px solid var(--border); }
+
+/* Главная: сводный баланс и ближайшие траты рядом; на узком экране — друг под другом */
+.grid-halves { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+.grid-halves > .card { margin-bottom: 0; min-width: 0; }
+.grid-halves + .card { margin-top: 16px; }
+@media (max-width: 900px) { .grid-halves { grid-template-columns: 1fr; } }
+.badge-warn { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
+
+/* Прогноз */
+.forecast-table .row-current td { background: var(--primary-soft); }
+.forecast-table .row-no-income td { opacity: 0.6; }
