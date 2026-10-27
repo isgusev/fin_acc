@@ -5,7 +5,7 @@ from urllib.parse import quote
 
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -68,6 +68,8 @@ def create_app() -> FastAPI:
         h.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
         h.setdefault("Cross-Origin-Opener-Policy", "same-origin")
         h.setdefault("Cross-Origin-Resource-Policy", "same-origin")
+        # личное приложение: не индексировать ни страницы, ни файлы
+        h.setdefault("X-Robots-Tag", "noindex, nofollow")
         h.setdefault(
             "Content-Security-Policy",
             "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; "
@@ -135,6 +137,16 @@ def create_app() -> FastAPI:
     @app.get("/health", include_in_schema=False)
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/robots.txt", include_in_schema=False)
+    def robots() -> PlainTextResponse:
+        # честным поисковым роботам — не индексировать сайт целиком
+        return PlainTextResponse("User-agent: *\nDisallow: /\n")
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    def favicon() -> FileResponse:
+        # браузеры и роботы запрашивают /favicon.ico по умолчанию — отдаём SVG-значок
+        return FileResponse(STATIC_DIR / "favicon.svg", media_type="image/svg+xml")
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_body_bytes)
