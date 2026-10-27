@@ -230,6 +230,8 @@ def test_statement_parser_resists_pathological_input():
 # Маршруты, доступные без входа. Любой новый маршрут без проверки авторизации уронит тест.
 PUBLIC = {
     ("GET", "/health"),
+    ("GET", "/robots.txt"),
+    ("GET", "/favicon.ico"),
     ("GET", "/login"),
     ("POST", "/login"),
     ("GET", "/register"),
@@ -324,3 +326,13 @@ def test_client_ip_from_rightmost_proxy_hop():
 
     assert client_ip(req("1.1.1.1, 2.2.2.2, 203.0.113.7")) == "203.0.113.7"
     assert client_ip(req(None)) == "172.16.0.1"
+
+
+def test_robots_noindex_and_favicon(client):
+    r = client.get("/robots.txt")
+    assert r.status_code == 200 and "Disallow: /" in r.text
+    assert r.headers["X-Robots-Tag"] == "noindex, nofollow"
+    fav = client.get("/favicon.ico")
+    assert fav.status_code == 200 and fav.headers["content-type"].startswith("image/svg+xml")
+    login = client.get("/login").text
+    assert '<meta name="robots" content="noindex, nofollow">' in login
