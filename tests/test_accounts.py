@@ -713,3 +713,101 @@ def test_group_page_shows_overview(user_client, db, user, refs, make):
     )
     html = user_client.get("/funds").text
     assert "Сводка ·" in html and "Пополнение в этом месяце" in html and "Итого" in html
+
+
+# ---------------------------------------------------------------- поддерживаемый остаток фонда
+
+
+def test_reserve_level_only_for_funds(db, user, refs):
+    with pytest.raises(ValidationAppError) as ei:
+        accounts_svc.create_account(
+            db,
+            user,
+            schemas.AccountIn(
+                name="Карта", account_type_id=refs.account_types["monthly"], reserve_level=D("1000")
+            ),
+        )
+    assert ei.value.field == "reserve_level"
+
+
+def test_reserve_shortfall_and_funds_below(db, user, refs, make):
+    src = make.account(user, "current")
+    cushion = accounts_svc.create_account(
+        db, user, fund_in(refs, name="Подушка", reserve_level=D("1000000"))
+    )
+    other = accounts_svc.create_account(db, user, fund_in(refs, name="Отпуск"))  # без уровня
+    make.transfer(user, src, cushion, "870000", on=date(2026, 10, 1))
+    make.transfer(user, src, other, "5000", on=date(2026, 10, 1))
+
+    assert accounts_svc.reserve_shortfall(D("870000"), D("1000000")) == D("130000")
+    assert accounts_svc.reserve_shortfall(D("1200000"), D("1000000")) == D("0.00")
+    assert accounts_svc.reserve_shortfall(D("5"), None) is None
+    below = accounts_svc.funds_below_reserve(db, user)
+    assert [(a.name, s) for a, s in below] == [("Подушка", D("130000.00"))]
+
+    make.transfer(user, src, cushion, "130000", on=date(2026, 10, 2))  # пополнили до уровня
+    assert accounts_svc.funds_below_reserve(db, user) == []
+
+
+def test_reserve_level_kept_on_reopen(db, user, refs):
+    acc = accounts_svc.create_account(db, user, fund_in(refs, reserve_level=D("500000")))
+    _, new, _ = accounts_svc.reopen_fund(db, user, acc.id)
+    assert new.reserve_level == D("500000.00")
+
+
+def test_reserve_shown_on_funds_page_and_dashboard(user_client, db, user, refs, make):
+    src = make.account(user, "current")
+    cushion = accounts_svc.create_account(
+        db, user, fund_in(refs, name="Подушка", reserve_level=D("1000000"))
+    )
+    make.transfer(user, src, cushion, "870000", on=date(2026, 10, 1))
+    funds = user_client.get("/funds").text
+    assert "Не хватает 130" in funds and "ниже уровня на 130" in funds
+    home = user_client.get("/").text
+    assert "ниже поддерживаемого остатка" in home and "Подушка" in home
+    # форма: поле есть и сохраняется
+    r = user_client.post(
+        f"/accounts/{cushion.id}/edit",
+        data={
+            "name": "Подушка",
+            "account_type_id": str(refs.account_types["fund"]),
+            "replenish_period": "none",
+            "reserve_level": "900 000",
+        },
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    db.refresh(cushion)
+    assert cushion.reserve_level == D("900000.00")
+
+
+# ---------------------------------------------------------------- показ текущего и будущего плана
+
+
+def _future_plan_account(db, user, refs, effective=date(2027, 5, 1)):
+    acc = accounts_svc.create_account(db, user, monthly_in(refs, replenish_amount=D("1")))
+    accounts_svc.update_account(
+        db,
+        user,
+        acc.id,
+        monthly_in(refs, replenish_amount=D("28000"), plan_effective_from=effective),
+    )
+    return acc
+
+
+def test_plan_status_current_and_upcoming(db, user, refs):
+    acc = _future_plan_account(db, user, refs)
+    cur, nxt = accounts_svc.plan_status(db, [acc.id], date(2026, 11, 10))[acc.id]
+    assert cur.amount == D("1.00")
+    assert nxt is not None and (nxt.effective_from, nxt.amount) == (date(2027, 5, 1), D("28000.00"))
+    cur, nxt = accounts_svc.plan_status(db, [acc.id], date(2027, 6, 1))[acc.id]
+    assert (cur.amount, nxt) == (D("28000.00"), None)
+    assert accounts_svc.plan_status(db, []) == {}
+
+
+def test_card_and_dashboard_show_current_plan(user_client, db, user, refs):
+    # страницы считают от реальной сегодняшней даты — план в далёком будущем
+    _future_plan_account(db, user, refs, effective=date(2099, 5, 1))
+    monthly = user_client.get("/monthly").text
+    assert "Ежемесячно, 1,00 ₽" in monthly and "с 01.05.2099 — ежемесячно, 28" in monthly
+    assert "с 01.05.2099: 28" in user_client.get("/").text

@@ -82,3 +82,14 @@
   <span class="progress-pct">{{ percent }}%</span>
 </div>
 {%- endmacro %}
+
+
+{# План пополнения счёта: действующий сейчас и, если запланирован, будущий.
+   plans — {id счёта: (текущий, будущий | None)}; без истории — поля самого счёта. #}
+{% macro plan_line(a, plans) -%}
+{%- set st = plans.get(a.id) -%}
+{%- set cur_period = st[0].period if st else a.replenish_period -%}
+{%- set cur_amount = st[0].amount if st else a.replenish_amount -%}
+{{ cur_period|period }}{% if cur_amount is not none %}, {{ cur_amount|money }} ₽{% endif %}
+{%- if st and st[1] %} <span class="plan-next">· с {{ st[1].effective_from|ru_date }} — {{ st[1].period|period|lower }}{% if st[1].amount is not none %}, {{ st[1].amount|money }} ₽{% endif %}</span>{% endif %}
+{%- endmacro %}

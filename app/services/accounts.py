@@ -160,6 +160,10 @@ def calc_replenish_amount(target: Decimal, months_to_goal: int, period: Replenis
 
 def _account_fields(at: AccountType, data: schemas.AccountIn) -> dict[str, object]:
     fields = data.model_dump(exclude={"plan_effective_from"})
+    if data.reserve_level is not None and at.code != AccountTypeCode.FUND.value:
+        raise ValidationAppError(
+            "Поддерживаемый остаток задаётся только для фондов", "reserve_level"
+        )
     if data.target_amount is None:
         return fields
     if at.code != AccountTypeCode.FUND.value:
@@ -328,6 +332,7 @@ def reopen_fund(
         replenish_amount=old.replenish_amount,
         months_to_goal=old.months_to_goal,
         target_amount=old.target_amount,
+        reserve_level=old.reserve_level,
     )
     db.add(new)
     db.flush()
@@ -600,3 +605,62 @@ def month_overview(
         total_expected=total_exp,
         total_percent=_percent(total_repl, total_exp),
     )
+
+
+def reserve_shortfall(balance: Decimal, reserve_level: Decimal | None) -> Decimal | None:
+    """Сколько не хватает до поддерживаемого остатка (None — уровень не задан, 0 — хватает)."""
+    if reserve_level is None:
+        return None
+    return max(reserve_level - balance, ZERO)
+
+
+def funds_below_reserve(db: Session, user: User) -> list[tuple[schemas.AccountOut, Decimal]]:
+    """Открытые фонды, у которых баланс ниже поддерживаемого остатка, и нехватка по каждому."""
+    accs = list_accounts(db, user, type_code=AccountTypeCode.FUND.value, include_closed=False)
+    out = []
+    for a in accounts_with_balances(db, user, [x for x in accs if x.reserve_level is not None]):
+        short = reserve_shortfall(a.balance, a.reserve_level)
+        if short:
+            out.append((a, short))
+    return out
+
+
+# ---------------------------------------------------------------- текущий и будущий план
+
+
+@dataclass(frozen=True)
+class PlanView:
+    effective_from: date
+    period: ReplenishPeriod
+    amount: Decimal | None
+
+
+def plan_status(
+    db: Session, account_ids: Sequence[uuid.UUID], today: date | None = None
+) -> dict[uuid.UUID, tuple[PlanView, PlanView | None]]:
+    """План пополнения, действующий сегодня, и ближайший будущий (если запланирован).
+
+    В полях счёта хранится последнее введённое значение — оно может вступать в силу
+    позже, поэтому для показа «сейчас» берём историю планов.
+    """
+    if not account_ids:
+        return {}
+    today = today or date.today()
+    plans: dict[uuid.UUID, list[AccountReplenishPlan]] = {}
+    for p in db.scalars(
+        select(AccountReplenishPlan)
+        .where(AccountReplenishPlan.account_id.in_(list(account_ids)))
+        .order_by(AccountReplenishPlan.effective_from)
+    ):
+        plans.setdefault(p.account_id, []).append(p)
+    out: dict[uuid.UUID, tuple[PlanView, PlanView | None]] = {}
+    for acc_id, items in plans.items():
+        past = [p for p in items if p.effective_from <= today]
+        future = [p for p in items if p.effective_from > today]
+        cur = past[-1] if past else items[0]
+        nxt = future[0] if future else None
+        out[acc_id] = (
+            PlanView(cur.effective_from, cur.period, cur.amount),
+            PlanView(nxt.effective_from, nxt.period, nxt.amount) if nxt else None,
+        )
+    return out

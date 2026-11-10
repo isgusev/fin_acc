@@ -15,6 +15,15 @@
   </div>
 </div>
 
+{% if below_reserve %}
+<div class="alert alert-warning reserve-alert">
+  {% for a, short in below_reserve %}
+    <div>Фонд «{{ a.name }}» ниже поддерживаемого остатка: не хватает <strong>{{ short|money }} ₽</strong>
+      (сейчас {{ a.balance|money }} из {{ a.reserve_level|money }} ₽).</div>
+  {% endfor %}
+  <a href="/funds">Перейти к фондам</a>
+</div>
+{% endif %}
 <div class="grid-halves">
 <section class="card">
   <h2>Сводный баланс по типам счетов</h2>
@@ -165,8 +174,12 @@
         <tr class="{{ 'row-closed' if a.is_closed else '' }}">
           <td>{{ a.name }}</td>
           <td>{{ a.account_type.name }}</td>
-          <td>{{ a.replenish_period|period }}</td>
-          <td class="r">{% if a.replenish_amount is not none %}{{ m.amount(a.replenish_amount) }}{% else %}<span class="muted">—</span>{% endif %}</td>
+          {% set st = plans.get(a.id) %}
+          {% set cur_period = st[0].period if st else a.replenish_period %}
+          {% set cur_amount = st[0].amount if st else a.replenish_amount %}
+          <td>{{ cur_period|period }}</td>
+          <td class="r">{% if cur_amount is not none %}{{ m.amount(cur_amount) }}{% else %}<span class="muted">—</span>{% endif %}
+            {% if st and st[1] %}<div class="muted small nowrap">с {{ st[1].effective_from|ru_date }}: {{ (st[1].amount|money ~ " ₽") if st[1].amount is not none else "—" }}</div>{% endif %}</td>
           <td>{{ a.months_to_goal if a.months_to_goal is not none else "бессрочно" }}</td>
           <td>{% if a.is_closed %}<span class="badge badge-closed">Закрыт {{ a.closed_at|ru_date if a.closed_at else "" }}</span>{% else %}<span class="badge badge-open">Открыт</span>{% endif %}</td>
           <td class="r">{{ m.amount(a.balance) }}</td>

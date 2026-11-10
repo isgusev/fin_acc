@@ -17,9 +17,11 @@
     {% set type_opts = [] %}
     {% for t in account_types %}{% set _ = type_opts.append((t.id, t.name ~ (" (не больше одного)" if t.single_per_user else ""), 'data-type-code="' ~ (t.code or '') ~ '"')) %}{% endfor %}
     {{ m.select(f, "account_type_id", "Тип счёта", type_opts, required=True, empty="— выберите тип —", extra="data-account-type") }}
-    {{ m.money_input(f, "target_amount", "Целевая сумма, ₽", group="data-target-field",
+    {{ m.money_input(f, "target_amount", "Целевая сумма, ₽", group="data-target-field data-fund-only",
                      hint="Только для фондов. Сумма пополнения рассчитается автоматически: целевая сумма ÷ (месяцев до цели ÷ месяцев в периоде пополнения)",
                      extra="data-target-input") }}
+    {{ m.money_input(f, "reserve_level", "Поддерживаемый остаток, ₽", group="data-fund-only",
+                     hint="Только для фондов (например, подушка безопасности). Если баланс станет ниже, приложение покажет, сколько не хватает до этого уровня") }}
     <div class="grid-2">
       {{ m.select(f, "replenish_period", "Регулярность пополнения", replenish_periods) }}
       {{ m.money_input(f, "replenish_amount", "Сумма пополнения, ₽", extra="data-replenish-input") }}
