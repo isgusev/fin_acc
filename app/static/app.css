@@ -342,3 +342,4 @@ textarea.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; fon
 .text-danger { color: var(--danger); }
 .reserve-alert > div + div { margin-top: 4px; }
 .reserve-alert a { display: inline-block; margin-top: 6px; }
+.plan-next { color: var(--primary); }

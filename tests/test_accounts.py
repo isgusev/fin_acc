@@ -779,3 +779,35 @@ def test_reserve_shown_on_funds_page_and_dashboard(user_client, db, user, refs, 
     assert r.status_code == 303
     db.refresh(cushion)
     assert cushion.reserve_level == D("900000.00")
+
+
+# ---------------------------------------------------------------- показ текущего и будущего плана
+
+
+def _future_plan_account(db, user, refs, effective=date(2027, 5, 1)):
+    acc = accounts_svc.create_account(db, user, monthly_in(refs, replenish_amount=D("1")))
+    accounts_svc.update_account(
+        db,
+        user,
+        acc.id,
+        monthly_in(refs, replenish_amount=D("28000"), plan_effective_from=effective),
+    )
+    return acc
+
+
+def test_plan_status_current_and_upcoming(db, user, refs):
+    acc = _future_plan_account(db, user, refs)
+    cur, nxt = accounts_svc.plan_status(db, [acc.id], date(2026, 11, 10))[acc.id]
+    assert cur.amount == D("1.00")
+    assert nxt is not None and (nxt.effective_from, nxt.amount) == (date(2027, 5, 1), D("28000.00"))
+    cur, nxt = accounts_svc.plan_status(db, [acc.id], date(2027, 6, 1))[acc.id]
+    assert (cur.amount, nxt) == (D("28000.00"), None)
+    assert accounts_svc.plan_status(db, []) == {}
+
+
+def test_card_and_dashboard_show_current_plan(user_client, db, user, refs):
+    # страницы считают от реальной сегодняшней даты — план в далёком будущем
+    _future_plan_account(db, user, refs, effective=date(2099, 5, 1))
+    monthly = user_client.get("/monthly").text
+    assert "Ежемесячно, 1,00 ₽" in monthly and "с 01.05.2099 — ежемесячно, 28" in monthly
+    assert "с 01.05.2099: 28" in user_client.get("/").text

@@ -623,3 +623,44 @@ def funds_below_reserve(db: Session, user: User) -> list[tuple[schemas.AccountOu
         if short:
             out.append((a, short))
     return out
+
+
+# ---------------------------------------------------------------- текущий и будущий план
+
+
+@dataclass(frozen=True)
+class PlanView:
+    effective_from: date
+    period: ReplenishPeriod
+    amount: Decimal | None
+
+
+def plan_status(
+    db: Session, account_ids: Sequence[uuid.UUID], today: date | None = None
+) -> dict[uuid.UUID, tuple[PlanView, PlanView | None]]:
+    """План пополнения, действующий сегодня, и ближайший будущий (если запланирован).
+
+    В полях счёта хранится последнее введённое значение — оно может вступать в силу
+    позже, поэтому для показа «сейчас» берём историю планов.
+    """
+    if not account_ids:
+        return {}
+    today = today or date.today()
+    plans: dict[uuid.UUID, list[AccountReplenishPlan]] = {}
+    for p in db.scalars(
+        select(AccountReplenishPlan)
+        .where(AccountReplenishPlan.account_id.in_(list(account_ids)))
+        .order_by(AccountReplenishPlan.effective_from)
+    ):
+        plans.setdefault(p.account_id, []).append(p)
+    out: dict[uuid.UUID, tuple[PlanView, PlanView | None]] = {}
+    for acc_id, items in plans.items():
+        past = [p for p in items if p.effective_from <= today]
+        future = [p for p in items if p.effective_from > today]
+        cur = past[-1] if past else items[0]
+        nxt = future[0] if future else None
+        out[acc_id] = (
+            PlanView(cur.effective_from, cur.period, cur.amount),
+            PlanView(nxt.effective_from, nxt.period, nxt.amount) if nxt else None,
+        )
+    return out

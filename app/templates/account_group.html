@@ -62,7 +62,7 @@
     <div>
       <h2>{{ a.name }}</h2>
       <div class="muted small">
-        Пополнение: {{ a.replenish_period|period }}{% if a.replenish_amount is not none %}, {{ a.replenish_amount|money }} ₽{% endif %}
+        Пополнение: {{ m.plan_line(a, plans) }}
         · До цели: {{ (a.months_to_goal ~ " мес.") if a.months_to_goal is not none else "бессрочно" }}
         {% if a.target_amount is not none %}· Целевая сумма: {{ a.target_amount|money }} ₽{% endif %}
         {% if a.reserve_level is not none %}· Поддерживаемый остаток: {{ a.reserve_level|money }} ₽{% endif %}

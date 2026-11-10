@@ -81,6 +81,7 @@ def dashboard(
             "upcoming": plan_svc.upcoming_expenses(db, user, limit=len(type_balances)),
             "forecast_year_end": _year_end_forecast(db, user),
             "below_reserve": accounts_svc.funds_below_reserve(db, user),
+            "plans": accounts_svc.plan_status(db, [a.id for a in all_accounts]),
             "ops": ops,
             "total": total,
             "offset": flt.offset,
@@ -299,6 +300,7 @@ def _account_group(
             "history": history,
             "overview": accounts_svc.month_overview(db, user, open_items),
             # нехватка до поддерживаемого остатка по фондам (None — уровень не задан)
+            "plans": accounts_svc.plan_status(db, [a.id for a in open_items]),
             "shortfalls": {
                 a.id: accounts_svc.reserve_shortfall(a.balance, a.reserve_level) for a in open_items
             },
