@@ -20,7 +20,9 @@
       <tbody>
       {% for r in ov.rows %}
         <tr>
-          <td><a href="#acc-{{ r.account_id }}">{{ r.name }}</a></td>
+          <td><a href="#acc-{{ r.account_id }}">{{ r.name }}</a>
+            {% set short = shortfalls.get(r.account_id) %}
+            {% if short %}<div class="small text-danger">ниже уровня на {{ short|money }} ₽</div>{% endif %}</td>
           <td class="r nowrap">{{ m.amount(r.balance) }}</td>
           <td>
             {% if r.expected is not none %}
@@ -63,10 +65,23 @@
         Пополнение: {{ a.replenish_period|period }}{% if a.replenish_amount is not none %}, {{ a.replenish_amount|money }} ₽{% endif %}
         · До цели: {{ (a.months_to_goal ~ " мес.") if a.months_to_goal is not none else "бессрочно" }}
         {% if a.target_amount is not none %}· Целевая сумма: {{ a.target_amount|money }} ₽{% endif %}
+        {% if a.reserve_level is not none %}· Поддерживаемый остаток: {{ a.reserve_level|money }} ₽{% endif %}
       </div>
     </div>
     <div class="account-balance">{{ m.amount(a.balance) }} ₽</div>
   </div>
+  {% set short = shortfalls.get(a.id) %}
+  {% if short is not none %}
+  <div class="reserve-box{{ ' is-short' if short > 0 else '' }}">
+    {% set pct = ((a.balance / a.reserve_level * 100)|round(0, 'floor')|int) if a.balance > 0 else 0 %}
+    {{ m.progress(pct) }}
+    {% if short > 0 %}
+      <div class="reserve-note"><strong>Не хватает {{ short|money }} ₽</strong> до поддерживаемого остатка {{ a.reserve_level|money }} ₽</div>
+    {% else %}
+      <div class="reserve-note muted small">Поддерживаемый остаток {{ a.reserve_level|money }} ₽ — уровень держится</div>
+    {% endif %}
+  </div>
+  {% endif %}
   <div class="actions-row">
     <a class="btn btn-sm" href="/operations/new?type=transfer&amp;target_account_id={{ a.id }}&amp;next={{ page_path|urlencode }}">Пополнить переводом</a>
     <a class="btn btn-sm btn-ghost" href="/accounts/{{ a.id }}/edit?next={{ page_path|urlencode }}">Изменить</a>

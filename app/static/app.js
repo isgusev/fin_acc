@@ -175,7 +175,6 @@
 
   function initAccountForm(form) {
     var typeSelect = form.querySelector("[data-account-type]");
-    var targetField = form.querySelector("[data-target-field]");
     var targetInput = form.querySelector("[data-target-input]");
     var replenish = form.querySelector("[data-replenish-input]");
     var period = form.querySelector("select[name=replenish_period]");
@@ -187,7 +186,7 @@
     function update() {
       var opt = typeSelect ? typeSelect.options[typeSelect.selectedIndex] : null;
       var isFund = !!opt && opt.getAttribute("data-type-code") === fundCode;
-      if (targetField) setShown(targetField, isFund);
+      qsa(form, "[data-fund-only]").forEach(function (el) { setShown(el, isFund); });
       var target = isFund && targetInput ? parseMoney(targetInput.value) : null;
       if (!replenish) return;
       // при заданной целевой сумме сумму пополнения считает сервер — здесь только превью

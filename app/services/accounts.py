@@ -160,6 +160,10 @@ def calc_replenish_amount(target: Decimal, months_to_goal: int, period: Replenis
 
 def _account_fields(at: AccountType, data: schemas.AccountIn) -> dict[str, object]:
     fields = data.model_dump(exclude={"plan_effective_from"})
+    if data.reserve_level is not None and at.code != AccountTypeCode.FUND.value:
+        raise ValidationAppError(
+            "Поддерживаемый остаток задаётся только для фондов", "reserve_level"
+        )
     if data.target_amount is None:
         return fields
     if at.code != AccountTypeCode.FUND.value:
@@ -328,6 +332,7 @@ def reopen_fund(
         replenish_amount=old.replenish_amount,
         months_to_goal=old.months_to_goal,
         target_amount=old.target_amount,
+        reserve_level=old.reserve_level,
     )
     db.add(new)
     db.flush()
@@ -600,3 +605,21 @@ def month_overview(
         total_expected=total_exp,
         total_percent=_percent(total_repl, total_exp),
     )
+
+
+def reserve_shortfall(balance: Decimal, reserve_level: Decimal | None) -> Decimal | None:
+    """Сколько не хватает до поддерживаемого остатка (None — уровень не задан, 0 — хватает)."""
+    if reserve_level is None:
+        return None
+    return max(reserve_level - balance, ZERO)
+
+
+def funds_below_reserve(db: Session, user: User) -> list[tuple[schemas.AccountOut, Decimal]]:
+    """Открытые фонды, у которых баланс ниже поддерживаемого остатка, и нехватка по каждому."""
+    accs = list_accounts(db, user, type_code=AccountTypeCode.FUND.value, include_closed=False)
+    out = []
+    for a in accounts_with_balances(db, user, [x for x in accs if x.reserve_level is not None]):
+        short = reserve_shortfall(a.balance, a.reserve_level)
+        if short:
+            out.append((a, short))
+    return out

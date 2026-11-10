@@ -253,6 +253,9 @@ class Account(TimestampMixin, Base):
         CheckConstraint(
             "target_amount IS NULL OR target_amount > 0", name="ck_accounts_target_pos"
         ),
+        CheckConstraint(
+            "reserve_level IS NULL OR reserve_level > 0", name="ck_accounts_reserve_pos"
+        ),
         # Имя открытого счёта уникально в пределах пользователя
         Index(
             "uq_accounts_owner_name_open",
@@ -282,6 +285,9 @@ class Account(TimestampMixin, Base):
     months_to_goal: Mapped[int | None] = mapped_column(Integer)  # NULL = бессрочно
     # Целевая сумма (только для фондов): по ней рассчитывается сумма регулярного пополнения
     target_amount: Mapped[Decimal | None] = mapped_column(MONEY)
+    # Поддерживаемый остаток (только для фондов, например подушка безопасности):
+    # если баланс ниже — показывается, сколько не хватает до уровня
+    reserve_level: Mapped[Decimal | None] = mapped_column(MONEY)
     is_closed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

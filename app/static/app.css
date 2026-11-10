@@ -334,3 +334,11 @@ textarea.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; fon
 /* Прогноз */
 .forecast-table .row-current td { background: var(--primary-soft); }
 .forecast-table .row-no-income td { opacity: 0.6; }
+
+/* Поддерживаемый остаток фонда */
+.reserve-box { margin: 10px 0 4px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); }
+.reserve-box.is-short { background: var(--danger-soft); }
+.reserve-note { margin-top: 4px; }
+.text-danger { color: var(--danger); }
+.reserve-alert > div + div { margin-top: 4px; }
+.reserve-alert a { display: inline-block; margin-top: 6px; }

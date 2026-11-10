@@ -80,6 +80,7 @@ def dashboard(
             # столько же строк, сколько в сводном балансе (таблицы стоят рядом)
             "upcoming": plan_svc.upcoming_expenses(db, user, limit=len(type_balances)),
             "forecast_year_end": _year_end_forecast(db, user),
+            "below_reserve": accounts_svc.funds_below_reserve(db, user),
             "ops": ops,
             "total": total,
             "offset": flt.offset,
@@ -106,6 +107,7 @@ def _account_values(acc: Any) -> dict[str, str]:
         "replenish_amount": fmt_money_input(acc.replenish_amount),
         "months_to_goal": "" if acc.months_to_goal is None else str(acc.months_to_goal),
         "target_amount": fmt_money_input(acc.target_amount),
+        "reserve_level": fmt_money_input(acc.reserve_level),
         # по умолчанию изменение плана действует с текущего месяца
         "plan_effective_from": date.today().strftime("%Y-%m"),
     }
@@ -121,6 +123,7 @@ def _account_data(values: dict[str, str]) -> schemas.AccountIn:
             "replenish_amount": norm_money(opt(values, "replenish_amount")),
             "months_to_goal": opt(values, "months_to_goal"),
             "target_amount": norm_money(opt(values, "target_amount")),
+            "reserve_level": norm_money(opt(values, "reserve_level")),
             "plan_effective_from": _month_to_date(opt(values, "plan_effective_from")),
         },
     )
@@ -295,6 +298,10 @@ def _account_group(
             "closed_items": closed_items,
             "history": history,
             "overview": accounts_svc.month_overview(db, user, open_items),
+            # нехватка до поддерживаемого остатка по фондам (None — уровень не задан)
+            "shortfalls": {
+                a.id: accounts_svc.reserve_shortfall(a.balance, a.reserve_level) for a in open_items
+            },
             "total": sum((a.balance for a in open_items), Decimal("0.00")),
         },
     )

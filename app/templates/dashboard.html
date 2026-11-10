@@ -15,6 +15,15 @@
   </div>
 </div>
 
+{% if below_reserve %}
+<div class="alert alert-warning reserve-alert">
+  {% for a, short in below_reserve %}
+    <div>Фонд «{{ a.name }}» ниже поддерживаемого остатка: не хватает <strong>{{ short|money }} ₽</strong>
+      (сейчас {{ a.balance|money }} из {{ a.reserve_level|money }} ₽).</div>
+  {% endfor %}
+  <a href="/funds">Перейти к фондам</a>
+</div>
+{% endif %}
 <div class="grid-halves">
 <section class="card">
   <h2>Сводный баланс по типам счетов</h2>

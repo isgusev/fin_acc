@@ -200,6 +200,8 @@ class AccountIn(InModel):
     months_to_goal: int | None = Field(default=None, ge=1, le=1200)  # None = бессрочно
     # Только для фондов: при заданной целевой сумме сумма пополнения рассчитывается
     target_amount: PositiveMoney | None = None
+    # Только для фондов: остаток, который нужно поддерживать (подушка безопасности)
+    reserve_level: PositiveMoney | None = None
     # Только при изменении счёта: с какой даты действует новый план пополнения
     # (сумма/регулярность). Учитывается месяц; по умолчанию — текущий месяц.
     plan_effective_from: date | None = None
@@ -208,6 +210,7 @@ class AccountIn(InModel):
         "replenish_amount",
         "months_to_goal",
         "target_amount",
+        "reserve_level",
         "plan_effective_from",
         mode="before",
     )(_empty_to_none)
@@ -221,6 +224,7 @@ class AccountOut(OutModel):
     replenish_amount: Decimal | None
     months_to_goal: int | None
     target_amount: Decimal | None
+    reserve_level: Decimal | None = None
     is_closed: bool
     closed_at: datetime | None
     created_at: datetime
